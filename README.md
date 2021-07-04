@@ -12,6 +12,7 @@
 - Same rules can be applied to different periods and environments
 - Combat results obtained by combining multiplies
 - Risk tables combine attacker and defender keys to generate random curve-adjusted muliplies
+- Also create terrain cards that describe how differnt terrains affect movement and combat
 
 ## Sources of Inspuration
 - [Warhammer](https://www.warhammer-community.com/wp-content/uploads/2020/07/Lw4o3USx1R8sU7cQ.pdf)
