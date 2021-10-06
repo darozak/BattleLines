@@ -1,4 +1,4 @@
-# War Games
+# Battle Lines
 
 ## Objectives
 - Create a flexable,easy-to-use, correspondence-based wargame that can be played with paper and pencil.
