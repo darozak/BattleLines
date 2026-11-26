@@ -153,7 +153,9 @@ export function createInitialState(scenarioId: string, players: ScenarioPlayer[]
   }
   const state: GameState = {
     scenario: scenarioId,
+    seed,
     turn: 1,
+    current: 0,
     turnLimit: scenario.turnLimit,
     map,
     datasheets: PLACEHOLDER_DATASHEETS,
@@ -162,6 +164,7 @@ export function createInitialState(scenarioId: string, players: ScenarioPlayer[]
     objectives,
     scores: Object.fromEntries(players.map((p) => [p.id, 0])),
     lastSeen: Object.fromEntries(players.map((p) => [p.id, {}])),
+    reports: Object.fromEntries(players.map((p) => [p.id, []])),
     finished: false,
     result: null,
   };

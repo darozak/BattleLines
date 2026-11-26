@@ -1,5 +1,5 @@
-// Rules engine: pure functions only (no database, no email, no clock).
-//   resolveTurn(state, ordersByPlayer, seed) -> { state, events, logs }
+// Rules engine: pure functions only (no I/O, no clock, no randomness except the seeded dice).
+//   resolvePlayerTurn(state, orders) -> { state, events, logs }
 // The movement/spotting/combat logic below is a PLACEHOLDER that exercises the
 // simultaneous-turn pipeline. Replace it as the real rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
@@ -195,11 +195,13 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
   }
 }
 
-function resolveCombat(state: GameState, rng: Rng, events: GameEvent[]): void {
-  // PLACEHOLDER: every unit adjacent to an enemy attacks the weakest one; 2d6 - cover >= 8 hits.
+function resolveCombat(state: GameState, attacker: PlayerId, rng: Rng, events: GameEvent[]): void {
+  // PLACEHOLDER: each of the active player's units adjacent to an enemy attacks the weakest one;
+  // 2d6 - cover >= 8 hits.
   const units = alive(state);
   const hits = new Map<UnitId, number>();
   for (const u of units) {
+    if (u.owner !== attacker) continue;
     const targets = enemiesAdjacent(units, u).sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
     if (!targets.length) continue;
     const t = targets[0];
@@ -217,11 +219,12 @@ function resolveCombat(state: GameState, rng: Rng, events: GameEvent[]): void {
   }
 }
 
-function resolveScoring(state: GameState, events: GameEvent[]): void {
+function resolveScoring(state: GameState, scorer: PlayerId, events: GameEvent[]): void {
+  // PLACEHOLDER: the active player scores 1 for each objective they occupy with no enemy adjacent.
   const units = alive(state);
   for (const hex of state.objectives) {
     const holder = units.find((u) => u.hex === hex);
-    if (holder && enemiesAdjacent(units, holder).length === 0) {
+    if (holder && holder.owner === scorer && enemiesAdjacent(units, holder).length === 0) {
       state.scores[holder.owner] += 1;
       events.push({ type: 'score', player: holder.owner, hex, points: 1 });
     }
@@ -270,27 +273,50 @@ function filterEvents(state: GameState, events: GameEvent[], playerId: PlayerId,
 
 export interface TurnResolution {
   state: GameState;
-  /** Everything that happened (for the referee log and the end-of-game replay). */
+  /** Everything that happened (for the end-of-game replay). */
   events: GameEvent[];
   /** What each player is allowed to know about what happened. */
   logs: Record<PlayerId, GameEvent[]>;
 }
 
-export function resolveTurn(prevState: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, seed: number): TurnResolution {
+/** The dice seed for one player-turn: fixed by the game seed, the round and the player. */
+export function turnSeed(state: GameState): number {
+  let h = (state.seed ^ Math.imul(state.turn, 0x9e3779b1) ^ Math.imul(state.current + 1, 0x85ebca6b)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d) >>> 0;
+  return (h ^ (h >>> 15)) >>> 0;
+}
+
+export const currentPlayer = (state: GameState): PlayerId => state.players[state.current].id;
+const hasUnits = (state: GameState, id: PlayerId) => state.units.some((u) => u.owner === id && u.strength > 0);
+
+/**
+ * Resolve the current player's turn: their units move (and turn), then attack, then score.
+ * Deterministic: the same state and orders always give the same result.
+ */
+export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): TurnResolution {
+  if (prevState.finished) throw new Error('The game is over.');
   const state = structuredClone(prevState);
-  const rng = createRng(seed);
+  const active = currentPlayer(state);
+  const rng = createRng(turnSeed(state));
   const events: GameEvent[] = [];
   const seenBefore = Object.fromEntries(state.players.map((p) => [p.id, visibleHexes(state, p.id)]));
 
-  const clean: Record<PlayerId, PlayerOrders> = {};
-  for (const p of state.players) clean[p.id] = validateOrders(state, p.id, ordersByPlayer[p.id] || {}).orders;
+  state.reports[active] = []; // the active player has now seen these
+  resolveMovement(state, { [active]: validateOrders(state, active, orders).orders }, rng, events);
+  resolveCombat(state, active, rng, events);
+  resolveScoring(state, active, events);
 
-  resolveMovement(state, clean, rng, events);
-  resolveCombat(state, rng, events);
-  resolveScoring(state, events);
-
+  // Next player with units left; a new round starts when play wraps around.
+  const n = state.players.length;
+  let next = state.current;
+  let wrapped = false;
+  for (let i = 1; i <= n; i++) {
+    const idx = (state.current + i) % n;
+    if (idx <= state.current) wrapped = true;
+    if (hasUnits(state, state.players[idx].id)) { next = idx; break; }
+  }
   const ownersAlive = new Set(alive(state).map((u) => u.owner));
-  if (state.turn >= state.turnLimit || ownersAlive.size <= 1) {
+  if (ownersAlive.size <= 1 || (wrapped && state.turn >= state.turnLimit)) {
     const best = Math.max(...state.players.map((p) => (ownersAlive.has(p.id) ? state.scores[p.id] : -1)));
     const winners = state.players.filter((p) => ownersAlive.has(p.id) && state.scores[p.id] === best).map((p) => p.id);
     state.finished = true;
@@ -305,6 +331,7 @@ export function resolveTurn(prevState: GameState, ordersByPlayer: Record<PlayerI
   for (const p of state.players) {
     const seenAfter = visibleHexes(state, p.id);
     logs[p.id] = filterEvents(state, events, p.id, seenBefore[p.id], seenAfter);
+    if (p.id !== active && logs[p.id].length) state.reports[p.id].push({ turn: state.turn, player: active, events: logs[p.id] });
     // Update "last seen" markers for enemy units.
     const memory = state.lastSeen[p.id];
     for (const u of state.units) {
@@ -316,7 +343,10 @@ export function resolveTurn(prevState: GameState, ordersByPlayer: Record<PlayerI
       }
     }
   }
-  if (!state.finished) state.turn += 1;
+  if (!state.finished) {
+    if (wrapped) state.turn += 1;
+    state.current = next;
+  }
   return { state, events, logs };
 }
 
@@ -352,6 +382,27 @@ export function playerView(state: GameState, playerId: PlayerId): PlayerView {
     visibleHexes: [...seen],
     units,
     ghosts,
+    scores: state.scores,
+    turn: state.turn,
+    turnLimit: state.turnLimit,
+    finished: state.finished,
+    result: state.result,
+    eliminated: state.players.filter((p) => !alive(state).some((u) => u.owner === p.id)).map((p) => p.id),
+  };
+}
+
+/** Everything, with nothing hidden: used once the game is over. */
+export function fullView(state: GameState): PlayerView {
+  const { cols, rows } = state.map;
+  const all: HexKey[] = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) all.push(`${c},${r}`);
+  return {
+    map: state.map,
+    objectives: state.objectives,
+    datasheets: state.datasheets,
+    visibleHexes: all,
+    units: alive(state).map((u) => ({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, facing: u.facing, strength: u.strength, code: stats(state, u).code, own: false as const })),
+    ghosts: [],
     scores: state.scores,
     turn: state.turn,
     turnLimit: state.turnLimit,

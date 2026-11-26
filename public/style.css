@@ -117,3 +117,13 @@ svg .planned-facing { opacity: .85; stroke-dasharray: 2 2; }
 .compass .face { width: 34px; height: 30px; padding: 0; background: #e7e0d0; color: var(--ink); font: 16px sans-serif; }
 .compass .face.current { outline: 2px dashed #b9ab8f; }
 .compass .face.on { background: var(--accent); color: var(--accent-ink); }
+
+/* Static-site screens */
+.narrow { max-width: 760px; margin: 0 auto; }
+.share { border-left: 4px solid var(--accent); }
+.linkbox { width: 100%; font: 12px/1.4 ui-monospace, monospace; padding: 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: #fff; resize: vertical; word-break: break-all; margin: 6px 0 8px; }
+a.button { display: inline-block; text-decoration: none; padding: 10px 18px; border-radius: 4px; font-weight: bold; }
+a.button.secondary { background: #e7e0d0; color: var(--ink); }
+.players li .swatch { margin-right: 2px; }
+.side .share h3 { margin-top: 0; }

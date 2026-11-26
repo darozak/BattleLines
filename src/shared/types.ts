@@ -59,9 +59,21 @@ export interface GameResult {
   reason: string;
 }
 
+/** What one player learned from another player's turn. */
+export interface Report {
+  turn: number;
+  player: PlayerId;
+  events: GameEvent[];
+}
+
 export interface GameState {
   scenario: string;
+  /** Game seed. Each player-turn's dice are derived from it, so replaying the same orders gives the same result. */
+  seed: number;
+  /** Round number. A round ends when every player has taken a turn. */
   turn: number;
+  /** Index into players of the player whose turn it is. */
+  current: number;
   turnLimit: number;
   map: GameMap;
   /** Copied into each game so later datasheet changes don't affect running games. */
@@ -72,6 +84,8 @@ export interface GameState {
   scores: Record<PlayerId, number>;
   /** Per player: where each enemy unit was last seen. */
   lastSeen: Record<PlayerId, Record<UnitId, LastSeen>>;
+  /** Per player: what they saw happen since their last turn. Cleared when they take their turn. */
+  reports: Record<PlayerId, Report[]>;
   finished: boolean;
   result: GameResult | null;
 }
@@ -179,23 +193,3 @@ export interface PlayerView {
   result: GameResult | null;
   eliminated: PlayerId[];
 }
-
-/** Response of GET /api/p/:token/view. */
-export interface PlayerData {
-  game: {
-    id: string;
-    name: string;
-    status: GameStatus;
-    turn: number;
-    deadline: number | null;
-    turnLengthSec: number;
-  };
-  me: { id: PlayerId; name: string; side: number | null; isHost: boolean };
-  players: { id: PlayerId; name: string; side: number; submitted: boolean; missedTurns: number }[];
-  view: PlayerView;
-  myOrders: PlayerOrders | null;
-  submittedAt: number | null;
-  lastTurn: { turn: number; events: GameEvent[] } | null;
-}
-
-export type GameStatus = 'inviting' | 'active' | 'finished' | 'cancelled';

@@ -2,13 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES } from '../src/shared/hex.js';
 import { createInitialState } from '../src/shared/scenario.js';
-import { resolveTurn, validateOrders, playerView, visibleHexes } from '../src/shared/engine.js';
-import type { AttackEvent, GameState, HexKey, MoveEvent } from '../src/shared/types.js';
+import { resolvePlayerTurn, validateOrders, playerView, visibleHexes, turnSeed } from '../src/shared/engine.js';
+import type { AttackEvent, GameState, HexKey, MoveEvent, PlayerOrders, Unit } from '../src/shared/types.js';
 
 function openState(players = 2): GameState {
   const s = createInitialState('crossroads', Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
   s.map.terrain.fill('open'); // flat, open map for predictable tests
   return s;
+}
+
+const unit = (id: string, owner: string, type: string, hex: HexKey, extra: Partial<Unit> = {}): Unit =>
+  ({ id, owner, type, name: id.toUpperCase(), hex, facing: 0, strength: { infantry: 4, scout: 2, heavy: 6 }[type]!, ...extra });
+
+/** Resolve a turn for a given player (whatever the state says). */
+function play(s: GameState, player: number, orders: PlayerOrders) {
+  return resolvePlayerTurn({ ...s, current: player }, orders);
 }
 
 test('hex math', () => {
@@ -32,58 +40,63 @@ test('validateOrders rejects foreign units, gaps and overlong paths', () => {
   assert.equal(validateOrders(s, 'p0', { [mine.id]: { path } }).ok, false);
 });
 
-test('units with no orders hold, ordered units move, turn advances', () => {
+test('a player turn: ordered units move, others hold, play passes on', () => {
   const s = openState();
   const u = s.units.find((x) => x.owner === 'p0' && x.type === 'infantry')!;
-  const { state, logs } = resolveTurn(s, { p0: { [u.id]: { path: ['2,4', '3,4'] } } }, 1);
+  const { state, logs } = resolvePlayerTurn(s, { [u.id]: { path: ['2,4', '3,4'] } });
   assert.equal(state.units.find((x) => x.id === u.id)!.hex, '3,4');
-  assert.equal(state.turn, 2);
   assert.ok(logs.p0.some((e) => e.type === 'move' && e.unit === u.id));
+  assert.equal(state.current, 1, "now it is player 2's turn");
+  assert.equal(state.turn, 1, 'same round');
   assert.equal(s.units.find((x) => x.id === u.id)!.hex, u.hex, 'input state is not mutated');
+  const next = resolvePlayerTurn(state, {}).state;
+  assert.equal(next.current, 0);
+  assert.equal(next.turn, 2, 'a new round starts when play returns to player 1');
 });
 
-test('enemies entering the same hex clash and stop', () => {
+test('orders for another player\'s units are ignored', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'infantry', name: 'A', hex: '5,5', facing: 0, strength: 4 },
-    { id: 'b', owner: 'p1', type: 'infantry', name: 'B', hex: '7,5', facing: 0, strength: 4 },
-  ];
-  const { state, events } = resolveTurn(s, { p0: { a: { path: ['6,5', '7,5'] } }, p1: { b: { path: ['6,5', '5,5'] } } }, 3);
-  assert.ok(events.some((e) => e.type === 'clash' && e.hex === '6,5'));
-  assert.equal(state.units.find((u) => u.id === 'a')!.hex, '5,5');
-  assert.equal(state.units.find((u) => u.id === 'b')!.hex, '7,5');
+  const theirs = s.units.find((x) => x.owner === 'p1')!;
+  const { state } = resolvePlayerTurn(s, { [theirs.id]: { path: [neighbors(theirs.hex, 16, 12)[0]] } });
+  assert.equal(state.units.find((x) => x.id === theirs.id)!.hex, theirs.hex);
+});
+
+test('a unit cannot move into an enemy', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'infantry', '5,5'), unit('b', 'p1', 'infantry', '7,5')];
+  const { state, events } = play(s, 0, { a: { path: ['6,5', '7,5'] } });
+  assert.equal(state.units.find((u) => u.id === 'a')!.hex, '6,5');
+  assert.ok(events.some((e) => e.type === 'halt' && e.unit === 'a'));
 });
 
 test('a friendly column can follow its leader', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'infantry', name: 'A', hex: '3,5', facing: 0, strength: 4 },
-    { id: 'b', owner: 'p0', type: 'infantry', name: 'B', hex: '2,5', facing: 0, strength: 4 },
-    { id: 'z', owner: 'p1', type: 'infantry', name: 'Z', hex: '15,11', facing: 0, strength: 4 },
-  ];
-  const { state } = resolveTurn(s, { p0: { a: { path: ['4,5', '5,5'] }, b: { path: ['3,5', '4,5'] } } }, 3);
+  s.units = [unit('a', 'p0', 'infantry', '3,5'), unit('b', 'p0', 'infantry', '2,5'), unit('z', 'p1', 'infantry', '15,11')];
+  const { state } = play(s, 0, { a: { path: ['4,5', '5,5'] }, b: { path: ['3,5', '4,5'] } });
   assert.equal(state.units.find((u) => u.id === 'a')!.hex, '5,5');
   assert.equal(state.units.find((u) => u.id === 'b')!.hex, '4,5');
 });
 
 test('movement halts on contact with a new enemy', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'scout', name: 'A', hex: '2,5', facing: 0, strength: 2 },
-    { id: 'b', owner: 'p1', type: 'heavy', name: 'B', hex: '6,5', facing: 0, strength: 6 },
-  ];
-  const { state } = resolveTurn(s, { p0: { a: { path: ['3,5', '4,5', '5,5', '5,4'] } } }, 3);
+  s.units = [unit('a', 'p0', 'scout', '2,5'), unit('b', 'p1', 'heavy', '6,5')];
+  const { state } = play(s, 0, { a: { path: ['3,5', '4,5', '5,5', '5,4'] } });
   assert.equal(state.units.find((u) => u.id === 'a')!.hex, '5,5');
+});
+
+test('only the active player attacks', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'heavy', '6,5')];
+  const { events } = play(s, 0, {});
+  const attacks = events.filter((e): e is AttackEvent => e.type === 'attack');
+  assert.equal(attacks.length, 1);
+  assert.equal(attacks[0].attacker, 'a');
 });
 
 test('players only see enemies within sight and line of sight', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'infantry', name: 'A', hex: '2,5', facing: 0, strength: 4 },
-    { id: 'near', owner: 'p1', type: 'infantry', name: 'N', hex: '5,5', facing: 0, strength: 4 },
-    { id: 'far', owner: 'p1', type: 'infantry', name: 'F', hex: '14,5', facing: 0, strength: 4 },
-    { id: 'hidden', owner: 'p1', type: 'infantry', name: 'H', hex: '2,9', facing: 0, strength: 4 },
-  ];
+  s.units = [unit('a', 'p0', 'infantry', '2,5'), unit('near', 'p1', 'infantry', '5,5'),
+    unit('far', 'p1', 'infantry', '14,5'), unit('hidden', 'p1', 'infantry', '2,9')];
   s.map.terrain[7 * 16 + 2] = 'woods'; // between a and hidden
   s.map.terrain[7 * 16 + 1] = 'woods';
   s.map.terrain[7 * 16 + 3] = 'woods';
@@ -92,37 +105,40 @@ test('players only see enemies within sight and line of sight', () => {
   assert.ok(ids.includes('near'));
   assert.ok(!ids.includes('far'));
   assert.ok(!ids.includes('hidden'));
-  assert.ok(!JSON.stringify(v).includes('"14,5"'), 'hidden unit positions never leave the server');
+  assert.ok(!JSON.stringify(v).includes('"14,5"'), 'hidden unit positions are not in the view');
   assert.ok(visibleHexes(s, 'p0').has('2,5'));
   const own = v.units.find((u) => u.id === 'a')!;
   assert.equal(own.own && own.name, 'A', 'unit name is not replaced by the datasheet name');
 });
 
-test('enemy moves out of sight are not reported; last-seen markers persist', () => {
+test('reports: other players learn only what they saw; last-seen markers persist', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'infantry', name: 'A', hex: '1,5', facing: 0, strength: 4 },
-    { id: 'b', owner: 'p1', type: 'scout', name: 'B', hex: '6,5', facing: 0, strength: 2 },
-  ];
+  s.units = [unit('a', 'p0', 'infantry', '1,5'), unit('b', 'p1', 'scout', '6,5')];
   s.lastSeen.p0.b = { hex: '6,5', facing: 0, turn: 0, owner: 'p1', type: 'scout' };
-  const { state, logs } = resolveTurn(s, { p1: { b: { path: ['7,5', '8,5', '9,5', '10,5', '11,5', '12,5'] } } }, 5);
-  const mv = logs.p0.find((e): e is MoveEvent => e.type === 'move')!;
+  const { state } = play(s, 1, { b: { path: ['7,5', '8,5', '9,5', '10,5', '11,5', '12,5'] } });
+  const mv = state.reports.p0[0].events.find((e): e is MoveEvent => e.type === 'move')!;
   assert.ok(mv.partial);
   assert.ok(!mv.path.includes('12,5'));
   assert.equal(state.lastSeen.p0.b.hex, '6,5');
   assert.ok(playerView(state, 'p0').ghosts.some((g) => g.id === 'b'));
+  // When p0 takes their turn, their reports are cleared (they have read them).
+  assert.equal(resolvePlayerTurn({ ...state, current: 0 }, {}).state.reports.p0.length, 0);
 });
 
-test('resolution is deterministic for a given seed', () => {
+test('resolution is deterministic: same state and orders give the same result', () => {
   const s = openState(4);
-  const orders = { p0: { u1: { path: ['2,4', '3,4'] } } };
-  assert.deepEqual(resolveTurn(s, orders, 99), resolveTurn(s, orders, 99));
+  const orders = { u1: { path: ['2,4', '3,4'] } };
+  assert.deepEqual(resolvePlayerTurn(s, orders), resolvePlayerTurn(s, orders));
+  assert.notEqual(turnSeed(s), turnSeed({ ...s, current: 1 }), 'each player-turn gets its own dice');
+  assert.notEqual(turnSeed(s), turnSeed({ ...s, turn: 2 }));
 });
 
-test('game ends at the turn limit', () => {
+test('game ends after the last player of the final round', () => {
   const s = openState();
   s.turn = s.turnLimit;
-  const { state, events } = resolveTurn(s, {}, 1);
+  const mid = resolvePlayerTurn(s, {}).state;
+  assert.ok(!mid.finished, 'player 2 still gets their last turn');
+  const { state, events } = resolvePlayerTurn(mid, {});
   assert.ok(state.finished);
   assert.ok(events.some((e) => e.type === 'gameover'));
 });
@@ -144,9 +160,7 @@ test('large scenario: every unit starts on its own passable hex inside the map',
 });
 
 test('facing: directions and arcs', () => {
-  // facingToward an adjacent hex gives the index of that neighbour.
   neighbors('5,5').forEach((n, i) => assert.equal(facingToward('5,5', n), i, `toward neighbour ${i}`));
-  // Facing east (0): the three hexsides in front are front, the next two flank, the opposite one rear.
   const arcs = neighbors('5,5').map((n) => arcOf('5,5', 0, n));
   assert.deepEqual(arcs, ['front', 'front', 'flank', 'rear', 'flank', 'front']);
   assert.equal(FACING_NAMES[facingToward('0,5', '9,5')], 'E');
@@ -154,17 +168,13 @@ test('facing: directions and arcs', () => {
 
 test('facing: moving units face their last step unless ordered otherwise', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'infantry', name: 'A', hex: '3,5', facing: 3, strength: 4 },
-    { id: 'b', owner: 'p0', type: 'infantry', name: 'B', hex: '3,8', facing: 0, strength: 4 },
-    { id: 'c', owner: 'p0', type: 'infantry', name: 'C', hex: '3,2', facing: 0, strength: 4 },
-    { id: 'z', owner: 'p1', type: 'infantry', name: 'Z', hex: '15,11', facing: 3, strength: 4 },
-  ];
-  const { state, events } = resolveTurn(s, { p0: {
+  s.units = [unit('a', 'p0', 'infantry', '3,5', { facing: 3 }), unit('b', 'p0', 'infantry', '3,8'),
+    unit('c', 'p0', 'infantry', '3,2'), unit('z', 'p1', 'infantry', '15,11', { facing: 3 })];
+  const { state, events } = play(s, 0, {
     a: { path: ['4,5', '5,5'] },          // moves east, no facing given
     b: { path: ['4,8'], facing: 2 },      // moves east, then turns NW
     c: { path: [], facing: 4 },           // turns SW without moving
-  } }, 1);
+  });
   const f = (id: string) => state.units.find((u) => u.id === id)!.facing;
   assert.equal(f('a'), 0);
   assert.equal(f('b'), 2);
@@ -177,14 +187,10 @@ test('facing: moving units face their last step unless ordered otherwise', () =>
 
 test('facing: attacks report which arc they hit', () => {
   const s = openState();
-  s.units = [
-    { id: 'a', owner: 'p0', type: 'heavy', name: 'A', hex: '5,5', facing: 0, strength: 6 },
-    { id: 'b', owner: 'p1', type: 'scout', name: 'B', hex: '6,5', facing: 0, strength: 2 }, // A is directly behind B
-  ];
-  const { events } = resolveTurn(s, {}, 3);
-  const onB = events.find((e): e is AttackEvent => e.type === 'attack' && e.target === 'b')!;
-  const onA = events.find((e): e is AttackEvent => e.type === 'attack' && e.target === 'a')!;
+  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'scout', '6,5')]; // a is directly behind b
+  const onB = play(s, 0, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(onB.arc, 'rear');
+  const onA = play(s, 1, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(onA.arc, 'front');
 });
 
