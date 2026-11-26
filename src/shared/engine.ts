@@ -6,7 +6,7 @@
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
 import { terrainAt, elevationAt } from './terrain.js';
 import type {
-  AttackEvent, Datasheet, GameEvent, GameState, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
+  AttackEvent, Datasheet, Facing, GameEvent, GameState, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
 
 const alive = (state: GameState): Unit[] => state.units.filter((u) => u.strength > 0);
@@ -98,8 +98,9 @@ interface Mover {
   mp: number;
   traversed: HexKey[];
   stopped: boolean;
-  waits: number;
   reason: string | null;
+  /** Facing before moving, in case the unit is bumped back to where it started. */
+  startFacing: Facing;
 }
 
 function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, events: GameEvent[]): void {
@@ -111,11 +112,11 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
       const u = byId.get(unitId);
       if (!u || !order.path.length) continue;
       movers.set(unitId, { unit: u, path: [...order.path], mp: stats(state, u).move,
-        traversed: [u.hex], stopped: false, waits: 0, reason: null });
+        traversed: [u.hex], stopped: false, reason: null, startFacing: u.facing });
     }
   }
   const stop = (m: Mover, reason: string) => { if (!m.stopped) { m.stopped = true; m.reason = reason; } };
-  const maxImpulses = 3 * Math.max(0, ...[...movers.values()].map((m) => m.path.length));
+  const maxImpulses = Math.max(0, ...[...movers.values()].map((m) => m.path.length));
 
   for (let impulse = 0; impulse < maxImpulses; impulse++) {
     const active = [...movers.values()].filter((m) => !m.stopped && m.path.length);
@@ -130,7 +131,8 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
       if (!wants.has(next)) wants.set(next, []);
       wants.get(next)!.push(m);
     }
-    const candidate = new Map<HexKey, Mover>(); // hex -> mover allowed to try entering it
+    // Friendly units may pass through each other (#23); only enemies block the way.
+    const accepted = new Set<Mover>();
     for (const [hex, ms] of [...wants].sort(([a], [b]) => a.localeCompare(b))) {
       const owners = new Set(ms.map((m) => m.unit.owner));
       if (owners.size > 1) {
@@ -138,20 +140,10 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
         events.push({ type: 'clash', hex, units: ms.map((m) => m.unit.id) });
         continue;
       }
-      ms.sort((a, b) => a.unit.id.localeCompare(b.unit.id));
-      candidate.set(hex, ms[0]); // several of one player's units want the same hex: the first in roster order goes
-    }
-    // Accept moves into empty hexes, then moves into hexes vacated by accepted friendly moves.
-    const accepted = new Set<Mover>();
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const [hex, m] of candidate) {
-        if (accepted.has(m) || m.stopped) continue;
+      for (const m of ms) {
         const occ = occupant.get(hex);
-        if (!occ) { accepted.add(m); changed = true; }
-        else if (occ.owner !== m.unit.owner) { stop(m, 'blocked by enemy'); }
-        else if ([...accepted].some((a) => a.unit === occ)) { accepted.add(m); changed = true; }
+        if (occ && occ.owner !== m.unit.owner) stop(m, 'blocked by enemy');
+        else accepted.add(m);
       }
     }
     for (const m of accepted) {
@@ -160,17 +152,39 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
       m.unit.hex = hex;
       m.mp -= terrainAt(state.map, hex).cost;
       m.traversed.push(hex);
-      m.waits = 0;
-    }
-    for (const m of active) {
-      if (m.stopped || accepted.has(m)) continue;
-      if (++m.waits >= 3) stop(m, 'path blocked by a friendly unit');
     }
     // Contact: a moving unit halts when it becomes adjacent to a new enemy.
     for (const m of active) {
       if (m.stopped || !m.path.length) continue;
       const before = adjBefore.get(m.unit.id)!;
       if (enemiesAdjacent(units, m.unit).some((e) => !before.has(e.id))) stop(m, 'contact');
+    }
+  }
+
+  // No two friendly units may end their moves in the same hex. A unit that didn't move keeps its
+  // hex; otherwise the one that got there first does (ties: roster order), and the other steps back
+  // along its route to the last hex where it can stop.
+  const rank = new Map(state.units.map((u, i) => [u.id, i]));
+  for (;;) {
+    const at = new Map<HexKey, { unit: Unit; arrived: number }[]>();
+    for (const u of units) {
+      const m = movers.get(u.id);
+      const entry = { unit: u, arrived: m ? m.traversed.length - 1 : -1 };
+      if (!at.has(u.hex)) at.set(u.hex, []);
+      at.get(u.hex)!.push(entry);
+    }
+    const crowded = [...at.values()].filter((list) => list.length > 1);
+    if (!crowded.length) break;
+    for (const list of crowded) {
+      list.sort((a, b) => a.arrived - b.arrived || rank.get(a.unit.id)! - rank.get(b.unit.id)!);
+      for (const { unit } of list.slice(1)) {
+        const m = movers.get(unit.id)!; // only units that moved can be bumped (start hexes never overlap)
+        m.traversed.pop();
+        unit.hex = m.traversed[m.traversed.length - 1];
+        unit.facing = m.traversed.length > 1 ? facingToward(m.traversed[m.traversed.length - 2], unit.hex) : m.startFacing;
+        m.stopped = true;
+        m.reason = 'no room to stop further on (a friendly unit is there)';
+      }
     }
   }
 

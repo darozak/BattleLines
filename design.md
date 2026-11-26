@@ -74,7 +74,10 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 ## Turn Resolution (placeholder rules)
 1. **Movement:** units move one hex at a time along their paths. A unit stops when it becomes adjacent to a
    new enemy, and can't enter an enemy's hex. Moving units face their last step unless ordered otherwise.
-   Each step may rise or fall by at most the unit's **climb** (1 for most units, 2 for scouts).
+   Each step may rise or fall by at most the unit's **climb** (1 for most units, 2 for light troops).
+   Friendly units may pass through each other, but no two may end a move in the same hex: a unit that
+   stayed put keeps its hex, otherwise the one that got there first does, and the other stops on the last
+   free hex of its route. The map only offers hexes where a unit can actually stop.
 2. **Facing:** units turn to their ordered facing.
 3. **Combat:** each of the active player's units next to an enemy attacks it: the target in its orders if
    that enemy is in reach, otherwise the weakest. All attacks land together.

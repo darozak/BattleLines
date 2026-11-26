@@ -97,6 +97,36 @@ test('a friendly column can follow its leader', () => {
   assert.equal(state.units.find((u) => u.id === 'b')!.hex, '4,5');
 });
 
+test('friendly units pass through each other, but never end a move in the same hex', () => {
+  const s = openState();
+  const z = unit('z', 'p1', 'infantry', '15,11');
+  // Through a unit that stays put.
+  s.units = [unit('a', 'p0', 'infantry', '3,5'), unit('still', 'p0', 'heavy', '4,5'), z];
+  let r = play(s, 0, { a: { path: ['4,5', '5,5'] } });
+  assert.equal(r.state.units.find((u) => u.id === 'a')!.hex, '5,5');
+  assert.ok(!r.events.some((e) => e.type === 'halt'));
+  // Crossing routes: a goes east along row 5, b goes north across it at the same moment.
+  s.units = [unit('a', 'p0', 'infantry', '2,5'), unit('b', 'p0', 'infantry', '4,6'), z];
+  r = play(s, 0, { a: { path: ['3,5', '4,5', '5,5'] }, b: { path: ['4,5', '4,4'] } });
+  assert.equal(r.state.units.find((u) => u.id === 'a')!.hex, '5,5');
+  assert.equal(r.state.units.find((u) => u.id === 'b')!.hex, '4,4');
+  // Ending on a unit that stays put: step back to the last free hex of the route.
+  s.units = [unit('a', 'p0', 'infantry', '2,5'), unit('still', 'p0', 'heavy', '4,5'), z];
+  r = play(s, 0, { a: { path: ['3,5', '4,5'] } });
+  assert.equal(r.state.units.find((u) => u.id === 'a')!.hex, '3,5');
+  assert.ok(r.events.some((e) => e.type === 'halt' && e.unit === 'a' && /no room/.test(e.reason)));
+  // Two units ending in the same hex: the one that got there first keeps it.
+  s.units = [unit('far', 'p0', 'infantry', '1,5'), unit('near', 'p0', 'infantry', '4,6'), z];
+  r = play(s, 0, { far: { path: ['2,5', '3,5', '4,5'] }, near: { path: ['4,5'] } });
+  assert.equal(r.state.units.find((u) => u.id === 'near')!.hex, '4,5', 'arrived first');
+  assert.equal(r.state.units.find((u) => u.id === 'far')!.hex, '3,5', 'stepped back one hex');
+  assert.equal(new Set(r.state.units.map((u) => u.hex)).size, r.state.units.length);
+  // Enemies still block.
+  s.units = [unit('a', 'p0', 'infantry', '2,5'), unit('e', 'p1', 'infantry', '4,5')];
+  r = play(s, 0, { a: { path: ['3,5', '4,5', '5,5'] } });
+  assert.equal(r.state.units.find((u) => u.id === 'a')!.hex, '3,5');
+});
+
 test('movement halts on contact with a new enemy', () => {
   const s = openState();
   s.units = [unit('a', 'p0', 'scout', '2,5'), unit('b', 'p1', 'heavy', '6,5')];
