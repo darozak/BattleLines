@@ -163,8 +163,6 @@ export function createInitialState(scenarioId: string, players: ScenarioPlayer[]
     units,
     objectives,
     scores: Object.fromEntries(players.map((p) => [p.id, 0])),
-    lastSeen: Object.fromEntries(players.map((p) => [p.id, {}])),
-    reports: Object.fromEntries(players.map((p) => [p.id, []])),
     finished: false,
     result: null,
   };

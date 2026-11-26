@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES } from '../src/shared/hex.js';
 import { createInitialState } from '../src/shared/scenario.js';
-import { resolvePlayerTurn, validateOrders, playerView, visibleHexes, turnSeed } from '../src/shared/engine.js';
-import type { AttackEvent, GameState, HexKey, MoveEvent, PlayerOrders, Unit } from '../src/shared/types.js';
+import { resolvePlayerTurn, validateOrders, boardView, canSee, turnSeed } from '../src/shared/engine.js';
+import type { AttackEvent, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 function openState(players = 2): GameState {
   const s = createInitialState('crossroads', Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
@@ -43,9 +43,9 @@ test('validateOrders rejects foreign units, gaps and overlong paths', () => {
 test('a player turn: ordered units move, others hold, play passes on', () => {
   const s = openState();
   const u = s.units.find((x) => x.owner === 'p0' && x.type === 'infantry')!;
-  const { state, logs } = resolvePlayerTurn(s, { [u.id]: { path: ['2,4', '3,4'] } });
+  const { state, events } = resolvePlayerTurn(s, { [u.id]: { path: ['2,4', '3,4'] } });
   assert.equal(state.units.find((x) => x.id === u.id)!.hex, '3,4');
-  assert.ok(logs.p0.some((e) => e.type === 'move' && e.unit === u.id));
+  assert.ok(events.some((e) => e.type === 'move' && e.unit === u.id));
   assert.equal(state.current, 1, "now it is player 2's turn");
   assert.equal(state.turn, 1, 'same round');
   assert.equal(s.units.find((x) => x.id === u.id)!.hex, u.hex, 'input state is not mutated');
@@ -93,36 +93,24 @@ test('only the active player attacks', () => {
   assert.equal(attacks[0].attacker, 'a');
 });
 
-test('players only see enemies within sight and line of sight', () => {
+test('everyone sees the whole board; only the viewer\'s own units get orders data', () => {
   const s = openState();
-  s.units = [unit('a', 'p0', 'infantry', '2,5'), unit('near', 'p1', 'infantry', '5,5'),
-    unit('far', 'p1', 'infantry', '14,5'), unit('hidden', 'p1', 'infantry', '2,9')];
-  s.map.terrain[7 * 16 + 2] = 'woods'; // between a and hidden
-  s.map.terrain[7 * 16 + 1] = 'woods';
-  s.map.terrain[7 * 16 + 3] = 'woods';
-  const v = playerView(s, 'p0');
-  const ids = v.units.map((u) => u.id);
-  assert.ok(ids.includes('near'));
-  assert.ok(!ids.includes('far'));
-  assert.ok(!ids.includes('hidden'));
-  assert.ok(!JSON.stringify(v).includes('"14,5"'), 'hidden unit positions are not in the view');
-  assert.ok(visibleHexes(s, 'p0').has('2,5'));
+  s.units = [unit('a', 'p0', 'infantry', '2,5'), unit('far', 'p1', 'infantry', '14,5'), unit('dead', 'p1', 'scout', '9,9', { strength: 0 })];
+  const v = boardView(s, 'p0');
+  assert.deepEqual(v.units.map((u) => u.id), ['a', 'far'], 'all living units, however far away');
   const own = v.units.find((u) => u.id === 'a')!;
+  assert.ok(own.own && own.move === 4);
   assert.equal(own.own && own.name, 'A', 'unit name is not replaced by the datasheet name');
+  assert.ok(boardView(s, null).units.every((u) => !u.own));
 });
 
-test('reports: other players learn only what they saw; last-seen markers persist', () => {
+test('line of sight is blocked by woods (kept for future rules)', () => {
   const s = openState();
-  s.units = [unit('a', 'p0', 'infantry', '1,5'), unit('b', 'p1', 'scout', '6,5')];
-  s.lastSeen.p0.b = { hex: '6,5', facing: 0, turn: 0, owner: 'p1', type: 'scout' };
-  const { state } = play(s, 1, { b: { path: ['7,5', '8,5', '9,5', '10,5', '11,5', '12,5'] } });
-  const mv = state.reports.p0[0].events.find((e): e is MoveEvent => e.type === 'move')!;
-  assert.ok(mv.partial);
-  assert.ok(!mv.path.includes('12,5'));
-  assert.equal(state.lastSeen.p0.b.hex, '6,5');
-  assert.ok(playerView(state, 'p0').ghosts.some((g) => g.id === 'b'));
-  // When p0 takes their turn, their reports are cleared (they have read them).
-  assert.equal(resolvePlayerTurn({ ...state, current: 0 }, {}).state.reports.p0.length, 0);
+  assert.ok(canSee(s, '2,5', '2,9', 5));
+  s.map.terrain[7 * 16 + 2] = 'woods';
+  s.map.terrain[7 * 16 + 1] = 'woods';
+  s.map.terrain[7 * 16 + 3] = 'woods';
+  assert.ok(!canSee(s, '2,5', '2,9', 5));
 });
 
 test('resolution is deterministic: same state and orders give the same result', () => {

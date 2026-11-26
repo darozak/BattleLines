@@ -1,18 +1,20 @@
 // Rules engine: pure functions only (no I/O, no clock, no randomness except the seeded dice).
-//   resolvePlayerTurn(state, orders) -> { state, events, logs }
-// The movement/spotting/combat logic below is a PLACEHOLDER that exercises the
-// simultaneous-turn pipeline. Replace it as the real rules are written.
+//   resolvePlayerTurn(state, orders) -> { state, events }
+// The movement/combat/scoring logic below is a PLACEHOLDER that exercises the game flow.
+// Replace it as the real rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
 import { terrainAt } from './terrain.js';
 import { createRng, type Rng } from './rng.js';
 import type {
-  AttackEvent, Datasheet, GameEvent, GameState, Ghost, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
+  Datasheet, GameEvent, GameState, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
 
 const alive = (state: GameState): Unit[] => state.units.filter((u) => u.strength > 0);
 const stats = (state: GameState, unit: { type: string }): Datasheet => state.datasheets[unit.type];
 
-// ---------------------------------------------------------------- spotting
+// ---------------------------------------------------------------- line of sight
+
+/** Whether a unit at fromHex can see toHex (for rules such as ranged fire; there is no fog of war). */
 
 export function canSee(state: GameState, fromHex: HexKey, toHex: HexKey, sight: number): boolean {
   if (distance(fromHex, toHex) > sight) return false;
@@ -21,22 +23,6 @@ export function canSee(state: GameState, fromHex: HexKey, toHex: HexKey, sight: 
     if (terrainAt(state.map, path[i]).blocksSight) return false;
   }
   return true;
-}
-
-export function visibleHexes(state: GameState, playerId: PlayerId): Set<HexKey> {
-  const { cols, rows } = state.map;
-  const seen = new Set<HexKey>();
-  for (const u of alive(state)) {
-    if (u.owner !== playerId) continue;
-    const sight = stats(state, u).sight + terrainAt(state.map, u.hex).sightBonus;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const h = `${c},${r}`;
-        if (!seen.has(h) && canSee(state, u.hex, h, sight)) seen.add(h);
-      }
-    }
-  }
-  return seen;
 }
 
 // ---------------------------------------------------------------- orders
@@ -231,52 +217,10 @@ function resolveScoring(state: GameState, scorer: PlayerId, events: GameEvent[])
   }
 }
 
-function filterEvents(state: GameState, events: GameEvent[], playerId: PlayerId, seenBefore: Set<HexKey>, seenAfter: Set<HexKey>): GameEvent[] {
-  const seen = (h: HexKey) => seenBefore.has(h) || seenAfter.has(h);
-  const out: GameEvent[] = [];
-  for (const e of events) {
-    switch (e.type) {
-      case 'move':
-        if (e.owner === playerId) out.push(e);
-        else {
-          const path = e.path.filter((h) => seen(h));
-          if (path.length) out.push({ ...e, path, partial: path.length !== e.path.length });
-        }
-        break;
-      case 'halt':
-        if (e.owner === playerId) out.push(e);
-        break;
-      case 'turn':
-        if (e.owner === playerId || seenAfter.has(e.hex)) out.push(e);
-        break;
-      case 'clash':
-        if (seenAfter.has(e.hex) || e.units.some((id) => state.units.find((u) => u.id === id)?.owner === playerId)) out.push(e);
-        break;
-      case 'attack': {
-        const visibleAttacker = e.attackerHex !== null && seenAfter.has(e.attackerHex);
-        if (e.attackerOwner === playerId || e.targetOwner === playerId || (visibleAttacker && seenAfter.has(e.targetHex))) out.push(e);
-        else if (seenAfter.has(e.targetHex)) {
-          const hidden: AttackEvent = { ...e, attacker: null, attackerType: null, attackerHex: null, unseenAttacker: true };
-          out.push(hidden);
-        }
-        break;
-      }
-      case 'destroyed':
-        if (e.owner === playerId || seenAfter.has(e.hex)) out.push(e);
-        break;
-      default:
-        out.push(e); // score, gameover: public
-    }
-  }
-  return out;
-}
-
 export interface TurnResolution {
   state: GameState;
-  /** Everything that happened (for the end-of-game replay). */
+  /** Everything that happened during the turn. */
   events: GameEvent[];
-  /** What each player is allowed to know about what happened. */
-  logs: Record<PlayerId, GameEvent[]>;
 }
 
 /** The dice seed for one player-turn: fixed by the game seed, the round and the player. */
@@ -299,9 +243,6 @@ export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): T
   const active = currentPlayer(state);
   const rng = createRng(turnSeed(state));
   const events: GameEvent[] = [];
-  const seenBefore = Object.fromEntries(state.players.map((p) => [p.id, visibleHexes(state, p.id)]));
-
-  state.reports[active] = []; // the active player has now seen these
   resolveMovement(state, { [active]: validateOrders(state, active, orders).orders }, rng, events);
   resolveCombat(state, active, rng, events);
   resolveScoring(state, active, events);
@@ -327,82 +268,26 @@ export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): T
     events.push({ type: 'gameover', ...state.result });
   }
 
-  const logs: Record<PlayerId, GameEvent[]> = {};
-  for (const p of state.players) {
-    const seenAfter = visibleHexes(state, p.id);
-    logs[p.id] = filterEvents(state, events, p.id, seenBefore[p.id], seenAfter);
-    if (p.id !== active && logs[p.id].length) state.reports[p.id].push({ turn: state.turn, player: active, events: logs[p.id] });
-    // Update "last seen" markers for enemy units.
-    const memory = state.lastSeen[p.id];
-    for (const u of state.units) {
-      if (u.owner === p.id) continue;
-      if (u.strength <= 0) {
-        if (logs[p.id].some((e) => e.type === 'destroyed' && e.unit === u.id)) delete memory[u.id];
-      } else if (seenAfter.has(u.hex)) {
-        memory[u.id] = { hex: u.hex, facing: u.facing, turn: state.turn, owner: u.owner, type: u.type };
-      }
-    }
-  }
   if (!state.finished) {
     if (wrapped) state.turn += 1;
     state.current = next;
   }
-  return { state, events, logs };
+  return { state, events };
 }
 
-/** Record what everyone can see at the start of the game. */
-export function initialSpotting(state: GameState): GameState {
-  for (const p of state.players) {
-    const seen = visibleHexes(state, p.id);
-    for (const u of state.units) {
-      if (u.owner !== p.id && seen.has(u.hex)) {
-        state.lastSeen[p.id][u.id] = { hex: u.hex, facing: u.facing, turn: 0, owner: u.owner, type: u.type };
-      }
-    }
-  }
-  return state;
-}
-
-/** What a single player is allowed to know. Hidden information never leaves the server. */
-export function playerView(state: GameState, playerId: PlayerId): PlayerView {
-  const seen = visibleHexes(state, playerId);
-  const units: VisibleUnit[] = [];
-  for (const u of alive(state)) {
-    if (u.owner === playerId) units.push({ ...stats(state, u), ...u, own: true }); // unit's own name/strength win over the datasheet's
-    else if (seen.has(u.hex)) units.push({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, facing: u.facing, strength: u.strength, code: stats(state, u).code, own: false });
-  }
-  const visibleIds = new Set(units.map((u) => u.id));
-  const ghosts: Ghost[] = Object.entries(state.lastSeen[playerId] || {})
-    .filter(([id]) => !visibleIds.has(id))
-    .map(([id, g]) => ({ id, ...g, code: state.datasheets[g.type].code }));
+/**
+ * The board as seen by `viewer`: everything is visible (there is no fog of war); the viewer's
+ * own units carry their full datasheet so they can be given orders.
+ */
+export function boardView(state: GameState, viewer: PlayerId | null): PlayerView {
+  const units: VisibleUnit[] = alive(state).map((u) => (u.owner === viewer
+    ? { ...stats(state, u), ...u, own: true as const } // unit's own name/strength win over the datasheet's
+    : { id: u.id, owner: u.owner, type: u.type, name: u.name, hex: u.hex, facing: u.facing, strength: u.strength, code: stats(state, u).code, own: false as const }));
   return {
     map: state.map,
     objectives: state.objectives,
     datasheets: state.datasheets,
-    visibleHexes: [...seen],
     units,
-    ghosts,
-    scores: state.scores,
-    turn: state.turn,
-    turnLimit: state.turnLimit,
-    finished: state.finished,
-    result: state.result,
-    eliminated: state.players.filter((p) => !alive(state).some((u) => u.owner === p.id)).map((p) => p.id),
-  };
-}
-
-/** Everything, with nothing hidden: used once the game is over. */
-export function fullView(state: GameState): PlayerView {
-  const { cols, rows } = state.map;
-  const all: HexKey[] = [];
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) all.push(`${c},${r}`);
-  return {
-    map: state.map,
-    objectives: state.objectives,
-    datasheets: state.datasheets,
-    visibleHexes: all,
-    units: alive(state).map((u) => ({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, facing: u.facing, strength: u.strength, code: stats(state, u).code, own: false as const })),
-    ghosts: [],
     scores: state.scores,
     turn: state.turn,
     turnLimit: state.turnLimit,

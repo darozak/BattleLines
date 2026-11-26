@@ -46,24 +46,9 @@ export interface Unit {
   strength: number;
 }
 
-export interface LastSeen {
-  hex: HexKey;
-  facing: Facing;
-  turn: number;
-  owner: PlayerId;
-  type: string;
-}
-
 export interface GameResult {
   winners: PlayerId[];
   reason: string;
-}
-
-/** What one player learned from another player's turn. */
-export interface Report {
-  turn: number;
-  player: PlayerId;
-  events: GameEvent[];
 }
 
 export interface GameState {
@@ -82,10 +67,6 @@ export interface GameState {
   units: Unit[];
   objectives: HexKey[];
   scores: Record<PlayerId, number>;
-  /** Per player: where each enemy unit was last seen. */
-  lastSeen: Record<PlayerId, Record<UnitId, LastSeen>>;
-  /** Per player: what they saw happen since their last turn. Cleared when they take their turn. */
-  reports: Record<PlayerId, Report[]>;
   finished: boolean;
   result: GameResult | null;
 }
@@ -108,8 +89,6 @@ export interface MoveEvent {
   path: HexKey[];
   /** Facing when the move ended. */
   facing: Facing;
-  /** Set on enemy moves that were only partly in sight. */
-  partial?: boolean;
 }
 export interface HaltEvent {
   type: 'halt';
@@ -134,11 +113,10 @@ export interface ClashEvent {
 }
 export interface AttackEvent {
   type: 'attack';
-  /** null when the attacker was out of sight of the player receiving the report. */
-  attacker: UnitId | null;
+  attacker: UnitId;
   attackerOwner: PlayerId;
-  attackerType: string | null;
-  attackerHex: HexKey | null;
+  attackerType: string;
+  attackerHex: HexKey;
   target: UnitId;
   targetOwner: PlayerId;
   targetType: string;
@@ -148,7 +126,6 @@ export interface AttackEvent {
   dice: number[];
   cover: number;
   hit: boolean;
-  unseenAttacker?: boolean;
 }
 export interface DestroyedEvent {
   type: 'destroyed';
@@ -168,24 +145,17 @@ export interface GameOverEvent extends GameResult {
 }
 export type GameEvent = MoveEvent | HaltEvent | TurnEvent | ClashEvent | AttackEvent | DestroyedEvent | ScoreEvent | GameOverEvent;
 
-// ---------------------------------------------------------------- what a player may see
+// ---------------------------------------------------------------- the board as shown to a player
 
 export type VisibleUnit =
   | (Unit & Datasheet & { own: true })
-  | { id: UnitId; owner: PlayerId; type: string; hex: HexKey; facing: Facing; strength: number; code: string; own: false };
-
-export interface Ghost extends LastSeen {
-  id: UnitId;
-  code: string;
-}
+  | { id: UnitId; owner: PlayerId; type: string; name: string; hex: HexKey; facing: Facing; strength: number; code: string; own: false };
 
 export interface PlayerView {
   map: GameMap;
   objectives: HexKey[];
   datasheets: Record<string, Datasheet>;
-  visibleHexes: HexKey[];
   units: VisibleUnit[];
-  ghosts: Ghost[];
   scores: Record<PlayerId, number>;
   turn: number;
   turnLimit: number;

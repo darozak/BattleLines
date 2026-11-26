@@ -4,7 +4,7 @@
 import { parse, neighbors, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN } from '../shared/terrain.js';
 import type {
-  Facing, GameEvent, Ghost, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
+  Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
 import { esc } from './util.js';
 
@@ -25,7 +25,7 @@ export interface BoardContext {
   players: BoardPlayer[];
   /** Whose turn it is (null when the game is over). */
   current: PlayerId | null;
-  /** The viewing player, or null for an open view of the whole board. */
+  /** The player giving (or who just gave) orders, or null when just looking. */
   me: PlayerId | null;
   view: PlayerView;
   /** 'orders': the viewer is giving orders. 'review': read-only. */
@@ -146,7 +146,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         return render();
       }
     }
-    const here = view.units.find((u) => u.hex === hex) ?? view.ghosts.find((g) => g.hex === hex);
+    const here = view.units.find((u) => u.hex === hex);
     selected = here && here.id !== selected ? here.id : null;
     render();
     if (selected) document.querySelector(`tr[data-unit="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: 'nearest' });
@@ -155,7 +155,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   /** Select a unit: zoom the map to it and open its datasheet. */
   function focusUnit(id: UnitId): void {
     selected = id;
-    const hex = view.units.find((u) => u.id === id)?.hex ?? view.ghosts.find((g) => g.id === id)?.hex;
+    const hex = view.units.find((u) => u.id === id)?.hex;
     if (hex && zoom < FOCUS_ZOOM) setZoom(FOCUS_ZOOM);
     render();
     if (hex) centerOn(hex, true);
@@ -230,7 +230,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const wrap = document.getElementById('mapwrap')!;
     const { cols, rows } = view.map;
     const { w, h } = baseSize();
-    const visible = new Set(view.visibleHexes);
     const out: string[] = [];
     out.push(`<svg viewBox="0 0 ${w.toFixed(0)} ${h.toFixed(0)}" width="${(w * zoom).toFixed(0)}" height="${(h * zoom).toFixed(0)}" xmlns="http://www.w3.org/2000/svg">`);
     out.push(`<defs><marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`);
@@ -241,7 +240,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const p = px(hex);
         out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${terrainAt(hex).color}"/>`);
         if (showLabels) out.push(`<text class="label" x="${p.x}" y="${p.y + SIZE * 0.62}">${label(hex)}</text>`);
-        if (!visible.has(hex)) out.push(`<polygon class="fog" points="${hexPoints(p.x, p.y)}"/>`);
       }
     }
     for (const hex of view.objectives) {
@@ -273,10 +271,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         out.push(`<g class="planned"><circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" stroke="${colorOf(u.owner)}"/>${facingWedge(end.hex, end.facing, colorOf(u.owner), 'facing planned-facing')}</g>`);
       }
     }
-    for (const g of view.ghosts) {
-      const p = px(g.hex);
-      out.push(`<g class="unit ghost${g.id === selected ? ' is-selected' : ''}">${facingWedge(g.hex, g.facing, colorOf(g.owner), 'facing ghost-facing')}<circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.55}" stroke="${colorOf(g.owner)}"/><text x="${p.x}" y="${p.y}">${esc(g.code)}?</text></g>`);
-    }
     for (const u of view.units) {
       const p = px(u.hex);
       out.push(`<g class="unit${u.id === selected ? ' is-selected' : ''}">${facingWedge(u.hex, u.facing, colorOf(u.owner))}<circle class="body" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" fill="${colorOf(u.owner)}"/>`
@@ -294,15 +288,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   function unitDesc(id: UnitId | null, owner: PlayerId, type?: string | null): string {
     const own = myUnits().find((u) => u.id === id);
     if (own) return own.name;
-    return owner === ctx.me ? `your ${type ? dsName(type) : 'unit'}` : `${sideOf(owner)} ${type ? dsName(type) : 'unit'}`;
+    const other = others().find((u) => u.id === id);
+    if (other) return `${sideOf(owner)} ${other.name}`;
+    return `${owner === ctx.me ? 'your' : sideOf(owner)} ${type ? dsName(type) : 'unit'}`;
   }
 
   function describe(e: GameEvent): string {
     switch (e.type) {
       case 'move': {
-        const who = unitDesc(e.unit, e.owner, e.unitType);
-        if (e.owner === ctx.me || ctx.me === null) return `${who} moved ${label(e.path[0])} → ${label(e.path[e.path.length - 1])}.`;
-        return `${who} seen moving through ${e.path.map(label).join(', ')}${e.partial ? ' (partly out of sight)' : ''}.`;
+        return `${unitDesc(e.unit, e.owner, e.unitType)} moved ${label(e.path[0])} → ${label(e.path[e.path.length - 1])}.`;
       }
       case 'halt': return `${unitDesc(e.unit, e.owner)} halted at ${label(e.hex)}: ${e.reason}.`;
       case 'turn': return `${unitDesc(e.unit, e.owner, e.unitType)} at ${label(e.hex)} turned to face ${FACING_NAMES[e.facing]}.`;
@@ -311,7 +305,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const roll = `rolled ${e.dice.join('+')}${e.cover ? ` −${e.cover} cover` : ''}`;
         const target = unitDesc(e.target, e.targetOwner, e.targetType);
         const arc = e.arc === 'front' ? '' : ` in the ${e.arc}`;
-        if (e.unseenAttacker) return `Unseen enemy attacked ${target}${arc} — ${e.hit ? 'hit' : 'miss'}.`;
         return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}${arc}: ${roll} — ${e.hit ? 'hit!' : 'miss'}.`;
       }
       case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
@@ -353,22 +346,18 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <td class="${hasOrders(u.id) ? 'moving' : 'muted'}">${ctx.mode === 'orders' ? orderText(u) : ''}</td></tr>`).join('');
     const seen = others().map((u) => `<tr data-unit="${esc(u.id)}" class="${u.id === selected ? 'sel' : ''}">
         <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
-        <td>${esc(sideOf(u.owner))} ${esc(dsName(u.type))}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
-        <td>${u.strength}/${view.datasheets[u.type].strength}</td><td colspan="3">${ctx.me ? 'in sight' : esc(player(u.owner)?.name)}</td></tr>`);
-    const ghosts = view.ghosts.map((g) => `<tr data-unit="${esc(g.id)}" class="ghostrow ${g.id === selected ? 'sel' : ''}">
-        <td><span class="swatch hollow" style="border-color:${colorOf(g.owner)}"></span></td>
-        <td>${esc(sideOf(g.owner))} ${esc(dsName(g.type))}</td><td>${label(g.hex)}? ${arrow(g.facing)}</td>
-        <td>?</td><td colspan="3">last seen round ${g.turn}</td></tr>`);
+        <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
+        <td>${u.strength}/${view.datasheets[u.type].strength}</td><td colspan="3">${esc(player(u.owner)?.name)}</td></tr>`);
     const ownTable = ctx.me ? `<h3>Your units <span class="small">(${mine.length})</span></h3>
       ${mine.length ? `<div class="tablewrap"><table class="unittable">
         <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th>Mv</th><th>Sight</th><th>${ctx.mode === 'orders' ? 'Orders' : ''}</th></tr></thead>
         <tbody>${rows}</tbody></table></div>` : '<p class="small">No units remaining.</p>'}` : '';
-    const otherTitle = ctx.me ? `Enemy units <span class="small">(${seen.length} in sight${ghosts.length ? `, ${ghosts.length} last seen` : ''})</span>` : `All units <span class="small">(${seen.length})</span>`;
+    const otherTitle = `${ctx.me ? 'Enemy units' : 'All units'} <span class="small">(${seen.length})</span>`;
     return `<div class="card units">${ownTable}
       <h3 ${ctx.me ? 'style="margin-top:12px"' : ''}>${otherTitle}</h3>
-      ${seen.length + ghosts.length ? `<div class="tablewrap"><table class="unittable">
-        <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th colspan="3">${ctx.me ? 'Status' : 'Player'}</th></tr></thead>
-        <tbody>${seen.join('')}${ghosts.join('')}</tbody></table></div>` : '<p class="small">No enemies spotted.</p>'}
+      ${seen.length ? `<div class="tablewrap"><table class="unittable">
+        <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th colspan="3">Player</th></tr></thead>
+        <tbody>${seen.join('')}</tbody></table></div>` : '<p class="small">No enemy units left.</p>'}
     </div>`;
   }
 
@@ -376,15 +365,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (!selected) return '';
     const own = ownUnit(selected);
     const enemy = others().find((u) => u.id === selected);
-    const ghost: Ghost | undefined = view.ghosts.find((g) => g.id === selected);
-    const unit = own ?? enemy ?? ghost;
+    const unit = own ?? enemy;
     if (!unit) return '';
     const ds = view.datasheets[unit.type];
     const color = colorOf(unit.owner);
     const t = terrainAt(unit.hex);
-    const title = own ? own.name : `${sideOf(unit.owner)} ${ds.name}`;
+    const title = own ? own.name : `${sideOf(unit.owner)} ${unit.name}`;
     const history = reportEvents().filter((e) => involves(e, unit.id));
-    const strength = ghost ? null : (unit as OwnUnit | EnemyUnit).strength;
 
     let options = '';
     if (own && canOrder()) {
@@ -409,15 +396,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
             ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
     }
     return `<div class="card datasheet" style="border-top:4px solid ${color}">
-      <div class="ds-head"><span class="counter" style="background:${ghost ? 'transparent' : color};border-color:${color};color:${ghost ? color : '#fff'}">${esc(ds.code)}</span>
+      <div class="ds-head"><span class="counter" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
         <div><h3>${esc(title)}</h3><div class="small">${esc(ds.name)}${own ? '' : ` · ${esc(player(unit.owner)?.name ?? '')}`}</div></div>
         <button class="close" data-action="close" aria-label="Close">×</button></div>
-      ${ghost ? `<p class="small">Out of sight. Last seen at <b>${label(ghost.hex)}</b> in round ${ghost.turn}.</p>` : ''}
       <table class="stats">
-        <tr><th>Strength</th><td>${strength === null ? '?' : `${strength} / ${ds.strength} ${strengthBar(strength, ds.strength, color)}`}</td></tr>
+        <tr><th>Strength</th><td>${unit.strength} / ${ds.strength} ${strengthBar(unit.strength, ds.strength, color)}</td></tr>
         <tr><th>Move</th><td>${ds.move}</td></tr>
-        <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}${ghost ? ' <span class="small">(when last seen)</span>' : ''}</td></tr>
-        <tr><th>Sight</th><td>${ds.sight}${t.sightBonus && !ghost ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
+        <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</td></tr>
+        <tr><th>Sight</th><td>${ds.sight}${t.sightBonus ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
         <tr><th>Location</th><td>${label(unit.hex)} · ${t.name}${t.defense ? ` <span class="small">(cover ${t.defense})</span>` : ''}</td></tr>
       </table>
       ${options}
@@ -475,7 +461,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     </div>
     <div class="mapwrap" id="mapwrap"></div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
-      <span>◌ objective</span><span>dark = not in sight</span><span>dashed circle = last seen</span></div>
+      <span>◌ objective</span><span>dashed outline = planned move</span></div>
   </div>
   <aside class="side" id="side"></aside>
 </div>`;
