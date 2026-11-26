@@ -154,12 +154,16 @@ test('everyone sees the whole board; only the viewer\'s own units get orders dat
   assert.ok(boardView(s, null).units.every((u) => !u.own));
 });
 
-test('line of sight is blocked by woods (kept for future rules)', () => {
+test('line of sight is blocked by dense forest, not light forest (kept for future rules)', () => {
   const s = openState();
   assert.ok(canSee(s, '2,5', '2,9', 5));
-  s.map.terrain[7 * 16 + 2] = 'woods';
-  s.map.terrain[7 * 16 + 1] = 'woods';
-  s.map.terrain[7 * 16 + 3] = 'woods';
+  s.map.terrain[7 * 16 + 1] = 'light_forest';
+  s.map.terrain[7 * 16 + 2] = 'light_forest';
+  s.map.terrain[7 * 16 + 3] = 'light_forest';
+  assert.ok(canSee(s, '2,5', '2,9', 5), 'light forest: still in sight');
+  s.map.terrain[7 * 16 + 1] = 'dense_forest';
+  s.map.terrain[7 * 16 + 2] = 'dense_forest';
+  s.map.terrain[7 * 16 + 3] = 'dense_forest';
   assert.ok(!canSee(s, '2,5', '2,9', 5));
 });
 
@@ -231,9 +235,16 @@ test('combat: no dice, hits = attack - defence, every modifier on the tally', ()
   assert.equal(onA.arc, 'front');
   assert.equal(onA.hits, 0);
   // Cover adds to defence.
-  s.map.terrain[5 * 16 + 6] = 'woods';
+  s.map.terrain[5 * 16 + 6] = 'light_forest';
   const inWoods = combatTally(s, s.units[0], '5,5', s.units[1]);
-  assert.ok(inWoods.tally.some((l) => l.side === 'defence' && l.label === 'cover (woods)' && l.value === 1));
+  assert.ok(inWoods.tally.some((l) => l.side === 'defence' && l.label === 'cover (light forest)' && l.value === 1));
+  // Dense forest gives more cover; a unit standing in a river is exposed.
+  s.map.terrain[5 * 16 + 6] = 'dense_forest';
+  assert.equal(combatTally(s, s.units[0], '5,5', s.units[1]).defence, BASE_DEFENCE + 2);
+  s.map.terrain[5 * 16 + 6] = 'river';
+  const inRiver = combatTally(s, s.units[0], '5,5', s.units[1]);
+  assert.ok(inRiver.tally.some((l) => l.label === 'exposed (river (ford))' && l.value === -1));
+  assert.equal(inRiver.defence, BASE_DEFENCE - 1);
   assert.equal(inWoods.hits, 4);
 });
 
@@ -304,6 +315,35 @@ test('elevation: generated with the map, the same for the same seed, hills highe
   a.terrain.forEach((t, i) => { if (t === 'water') assert.equal(a.elevation[i], 0); });
 });
 
+test('terrain: every map has a river, marshes by it, light and dense forest, ruins and roads', () => {
+  for (const era of ['napoleonic', 'ww2']) {
+    for (const size of ['small', 'medium', 'large']) {
+      for (const seed of [1, 2, 3]) {
+        const m = createSetupState(era, size, 150, [{ id: 'p0', side: 0 }, { id: 'p1', side: 1 }], seed).map;
+        const at = (h: HexKey) => { const [c, r] = h.split(',').map(Number); return m.terrain[r * m.cols + c]; };
+        const all = (t: string) => m.terrain.map((x, i) => [x, `${i % m.cols},${Math.floor(i / m.cols)}`] as [string, string]).filter(([x]) => x === t).map(([, h]) => h);
+        const label = `${era} ${size} ${seed}`;
+        // The river (with its bridges) links the north edge to the south edge.
+        const wet = new Set([...all('river'), ...all('road').filter((h) => neighbors(h, m.cols, m.rows).some((n) => at(n) === 'river'))]);
+        const north = [...wet].filter((h) => h.endsWith(',0'));
+        assert.ok(north.length, `${label}: river starts on the north edge`);
+        const seen = new Set(north);
+        const queue = [...north];
+        while (queue.length) for (const n of neighbors(queue.pop()!, m.cols, m.rows)) if (wet.has(n) && !seen.has(n)) { seen.add(n); queue.push(n); }
+        assert.ok([...seen].some((h) => h.endsWith(`,${m.rows - 1}`)), `${label}: river reaches the south edge`);
+        assert.ok(all('marsh').length > 0, `${label}: marsh`);
+        assert.ok(all('light_forest').length > 0, `${label}: light forest`);
+        assert.ok(all('ruins').length > 0, `${label}: ruins`);
+        assert.ok(all('road').length > 0, `${label}: roads`);
+        for (const h of all('dense_forest')) {
+          assert.ok(neighbors(h, m.cols, m.rows).every((n) => ['light_forest', 'dense_forest', 'road'].includes(at(n)) || /^(0|\d+),0$/.test(n)),
+            `${label}: dense forest ${h} sits inside a forest`);
+        }
+      }
+    }
+  }
+});
+
 // ---------------------------------------------------------------- setup and turn 0
 
 const setup = (players = 2, era = 'napoleonic', size = 'small', points = 100) =>
@@ -317,7 +357,7 @@ test('setup: each era has its own terrain and armies, and unit types are unique 
     assert.ok(Object.values(eraDatasheets(era)).every((u) => u.points > 0 && u.climb >= 1));
   }
   const nap = setup(2, 'napoleonic', 'medium');
-  assert.ok(nap.map.terrain.includes('village') && !nap.map.terrain.includes('ruins'));
+  assert.ok(nap.map.terrain.includes('village'), 'villages: Napoleonic only');
   const ww2 = setup(2, 'ww2', 'medium');
   assert.ok(ww2.map.terrain.includes('ruins') && !ww2.map.terrain.includes('village'));
   assert.equal(nap.phase, 'deploy');

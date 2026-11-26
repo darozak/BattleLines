@@ -7,7 +7,7 @@ export type Facing = 0 | 1 | 2 | 3 | 4 | 5;
 export type PlayerId = string;
 export type UnitId = string;
 
-export type TerrainType = 'open' | 'road' | 'woods' | 'hills' | 'ruins' | 'village' | 'water';
+export type TerrainType = 'open' | 'road' | 'light_forest' | 'dense_forest' | 'hills' | 'ruins' | 'village' | 'marsh' | 'river' | 'water';
 
 export interface Terrain {
   name: string;

@@ -33,8 +33,9 @@ turn at a time.
 - **Eras**: each with its own terrain and its own armies, and units unique to each army. For now:
   the Napoleonic Wars (French, British, Austrian and Prussian armies) and the Second World War (US,
   German, British and Soviet divisions).
-- **Hex battlefields** in three sizes (16×12, 24×18 and 40×30) that scroll and zoom, with roads,
-  woods, hills, villages or ruins, and water that affect movement, sight and cover.
+- **Hex battlefields** in three sizes (16×12, 24×18 and 40×30) that scroll and zoom. Every map has a
+  winding river to ford or bridge, marshes along it, light and dense forest, hills, ruins (and villages
+  in the Napoleonic era), lakes and roads, each affecting movement, sight and cover.
 - **Elevation**: every hex has a height. Most units can climb or descend only one level per step
   (light troops can manage two), so steep drops act as cliffs. Attacking from higher ground is stronger;
   attacking uphill is weaker.

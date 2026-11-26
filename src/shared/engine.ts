@@ -228,7 +228,8 @@ export function combatTally(state: GameState, attacker: Unit, attackerHex: HexKe
   if (height > 0) tally.push({ side: 'attack', label: `higher ground (${height} above)`, value: height });
   if (height < 0) tally.push({ side: 'attack', label: `attacking uphill (${-height} below)`, value: height });
   tally.push({ side: 'defence', label: 'base defence', value: BASE_DEFENCE });
-  if (cover.defense) tally.push({ side: 'defence', label: `cover (${cover.name.toLowerCase()})`, value: cover.defense });
+  if (cover.defense > 0) tally.push({ side: 'defence', label: `cover (${cover.name.toLowerCase()})`, value: cover.defense });
+  if (cover.defense < 0) tally.push({ side: 'defence', label: `exposed (${cover.name.toLowerCase()})`, value: cover.defense });
   const attack = tally.filter((t) => t.side === 'attack').reduce((n, t) => n + t.value, 0);
   const defence = tally.filter((t) => t.side === 'defence').reduce((n, t) => n + t.value, 0);
   return { arc, tally, attack, defence, hits: Math.max(0, attack - defence) };

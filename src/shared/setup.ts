@@ -20,7 +20,10 @@ export interface Era {
   id: string;
   name: string;
   description: string;
-  /** Terrain clusters on a 16×12 map: [type, number of clusters, hexes per cluster]. Scaled to the map size. */
+  /**
+   * Terrain clusters on a 16×12 map: [type, number of clusters, hexes per cluster], scaled to the map
+   * size. Every map also gets a river; marshes grow from it; forest interiors become dense forest.
+   */
   terrain: [TerrainType, number, number][];
   armies: Army[];
 }
@@ -32,8 +35,8 @@ export const ERAS: Record<string, Era> = {
   napoleonic: {
     id: 'napoleonic',
     name: 'Napoleonic Wars',
-    description: 'Line infantry, skirmishers and cavalry among villages, woods and rolling hills.',
-    terrain: [['woods', 4, 6], ['hills', 4, 5], ['village', 3, 2], ['water', 1, 4]],
+    description: 'Line infantry, skirmishers and cavalry among villages, forests, marshes and rolling hills, with a river to cross.',
+    terrain: [['light_forest', 4, 10], ['hills', 4, 5], ['village', 3, 2], ['ruins', 1, 2], ['marsh', 2, 4], ['water', 1, 4]],
     armies: [
       { id: 'french', name: 'French Empire', description: 'Fast cavalry and the formidable Old Guard.', units: unitsOf('french', [
         { id: 'line', name: 'Line Infantry', code: 'L', points: 20, move: 3, sight: 5, strength: 4, climb: 1 },
@@ -64,8 +67,8 @@ export const ERAS: Record<string, Era> = {
   ww2: {
     id: 'ww2',
     name: 'Second World War',
-    description: 'Infantry, recon and armour fighting over woods, hills and ruined towns.',
-    terrain: [['woods', 5, 6], ['hills', 3, 4], ['ruins', 2, 3], ['water', 1, 5]],
+    description: 'Infantry, recon and armour fighting over forests, hills, marshes and ruined towns, with a river to cross.',
+    terrain: [['light_forest', 5, 10], ['hills', 3, 4], ['ruins', 3, 3], ['marsh', 2, 4], ['water', 1, 4]],
     armies: [
       { id: 'us', name: 'US Infantry Division', description: 'Rifle squads backed by Shermans and paratroopers.', units: unitsOf('us', [
         { id: 'rifles', name: 'Rifle Squad', code: 'R', points: 20, move: 4, sight: 5, strength: 4, climb: 1 },
@@ -168,18 +171,48 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
     const [c, r] = hex.split(',').map(Number);
     terrain[r * cols + c] = t;
   };
+  const at = (hex: HexKey) => { const [c, r] = hex.split(',').map(Number); return terrain[r * cols + c]; };
+
+  // A fordable river winds from the north edge to the south edge, on one side of the centre so it
+  // crosses the east-west road at a bridge instead of running under the north-south road.
+  const river: HexKey[] = [];
+  const mid = Math.floor(cols / 2);
+  const [lo, hi] = rng.int(2) ? [2, mid - 3] : [mid + 2, cols - 3];
+  let col = lo + rng.int(Math.max(1, hi - lo + 1));
+  let from = key(col, 0);
+  for (let r = 3; ; r += 3) {
+    col = Math.min(hi, Math.max(lo, col + rng.int(5) - 2));
+    const to = key(col, Math.min(r, rows - 1));
+    for (const h of line(from, to)) if (!river.includes(h)) river.push(h);
+    from = to;
+    if (r >= rows - 1) break;
+  }
+  for (const h of river) set(h, 'river');
+
   const scale = (cols * rows) / (16 * 12);
   for (const [type, clusters, hexes] of era.terrain) {
     for (let i = 0; i < Math.max(1, Math.round(clusters * scale)); i++) {
-      let frontier = [key(rng.int(cols), rng.int(rows))];
+      // Marshes grow out from the river; everything else starts anywhere.
+      let frontier = type === 'marsh' ? neighbors(rng.pick(river), cols, rows) : [key(rng.int(cols), rng.int(rows))];
       for (let j = 0; j < hexes && frontier.length; j++) {
         const h = rng.pick(frontier);
-        set(h, type);
+        if (at(h) !== 'river') set(h, type);
         frontier = frontier.concat(neighbors(h, cols, rows));
       }
     }
   }
-  // A road from west to east and one from north to south, crossing near the centre.
+  // The heart of a forest (a forest hex surrounded by forest) is dense.
+  const forest = (t: TerrainType) => t === 'light_forest' || t === 'dense_forest';
+  const hearts = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const h = key(c, r);
+      if (at(h) === 'light_forest' && neighbors(h, cols, rows).every((n) => forest(at(n)))) hearts.push(h);
+    }
+  }
+  for (const h of hearts) set(h, 'dense_forest');
+  // A road from west to east and one from north to south, crossing near the centre (and the
+  // river, by bridge).
   for (const h of line(key(0, Math.floor(rows / 2)), key(cols - 1, Math.floor(rows / 2) - 1))) set(h, 'road');
   for (const h of line(key(Math.floor(cols / 2) - 1, 0), key(Math.floor(cols / 2), rows - 1))) set(h, 'road');
   // Nobody should start in a lake or have an objective in one.
@@ -199,7 +232,7 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
       const h = key(c, r);
       const i = r * cols + c;
       const base = Math.max(0, ...peaks.map((p) => p.height - Math.floor(distance(h, p.hex) / 2)));
-      elevation[i] = terrain[i] === 'water' ? 0 : base + (terrain[i] === 'hills' ? 1 : 0);
+      elevation[i] = terrain[i] === 'water' ? 0 : river.includes(h) ? Math.max(0, base - 1) : base + (terrain[i] === 'hills' ? 1 : 0);
     }
   }
   return { cols, rows, terrain, elevation };

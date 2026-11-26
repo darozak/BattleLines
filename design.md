@@ -65,7 +65,22 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 
 ## The Hex Map
 - Pointy-top hexes in offset rows, shown as labels like `D7`.
-- Terrain affects movement cost, line of sight and cover. Every unit faces one of the six hexsides.
+- Terrain affects movement cost, line of sight and cover (placeholder values):
+
+  | Terrain | Move cost | Cover | Blocks sight | Where it appears |
+  |---|---|---|---|---|
+  | Open | 1 | 0 | no | everywhere else |
+  | Road | 1 | 0 | no | west–east and north–south across the map; bridges the river |
+  | Light forest | 2 | +1 | no | forest clusters |
+  | Dense forest | 3 | +2 | yes | the heart of a forest (a forest hex surrounded by forest) |
+  | Hills | 2 | +1 | yes | clusters, one level above their surroundings; +2 sight |
+  | Ruins | 2 | +2 | yes | both eras |
+  | Village | 1 | +2 | yes | Napoleonic era |
+  | Marsh | 3 | 0 | no | grows out from the river |
+  | River (ford) | 3 | −1 (exposed) | no | one per map, north edge to south edge, one level below its banks |
+  | Lake | impassable | – | no | small clusters |
+
+- Every unit faces one of the six hexsides.
 - Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.
   Hills sit one level above the ground around them. The map shades lower ground darker, writes each hex's
   height at its top, and draws edges with a drop of 2 or more as cliffs.

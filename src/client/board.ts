@@ -474,7 +474,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const ownTable = ctx.me ? `<h3>Your units <span class="small">(${mine.length})</span></h3>
       ${mine.length ? `<div class="tablewrap" data-scroll="own"><table class="unittable">
         <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th>Mv</th><th>Sight</th><th>${ctx.mode === 'orders' ? 'Orders' : ''}</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>` : '<p class="small">No units remaining.</p>'}` : '';
+        <tbody>${rows}</tbody></table></div>` : `<p class="small">${ctx.round === 0 ? 'No units placed yet.' : 'No units remaining.'}</p>`}` : '';
     const otherTitle = `${ctx.me ? 'Enemy units' : 'All units'} <span class="small">(${seen.length})</span>`;
     return `<div class="card units">${ownTable}
       <h3 ${ctx.me ? 'style="margin-top:12px"' : ''}>${otherTitle}</h3>
@@ -635,7 +635,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (view.finished) {
       const winners = (view.result?.winners || []).map((id) => player(id)?.name).join(' and ');
       parts.push(`<div class="banner ok">The battle is over. ${esc(view.result?.reason)} ${winners ? `Victory: ${esc(winners)}.` : ''}</div>`);
-    } else if (ctx.me && !myUnits().length) parts.push('<div class="banner warn">Your army has been destroyed.</div>');
+    } else if (ctx.me && ctx.round > 0 && !myUnits().length) parts.push('<div class="banner warn">Your army has been destroyed.</div>');
     return parts.join('');
   }
 
