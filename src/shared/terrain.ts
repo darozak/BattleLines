@@ -8,6 +8,7 @@ export const TERRAIN: Record<TerrainType, Terrain> = {
   woods: { name: 'Woods', cost: 2, blocksSight: true,  sightBonus: 0, defense: 1, color: '#7fa765' },
   hills: { name: 'Hills', cost: 2, blocksSight: true,  sightBonus: 2, defense: 1, color: '#c2a878' },
   ruins: { name: 'Ruins', cost: 2, blocksSight: true,  sightBonus: 0, defense: 2, color: '#a9a39a' },
+  village: { name: 'Village', cost: 1, blocksSight: true, sightBonus: 0, defense: 2, color: '#c9a98a' },
   water: { name: 'Water', cost: 0, impassable: true, blocksSight: false, sightBonus: 0, defense: 0, color: '#8dbcdc' },
 };
 

@@ -4,7 +4,7 @@
 
 2. <a id="2"></a>Scope
 
-   1. <a id="2.1"></a>Apply these instructions to any change to the rules engine, the scenarios and datasheets, the link format, the web page, the tests or the game docs.
+   1. <a id="2.1"></a>Apply these instructions to any change to the rules engine, the eras, armies and datasheets, the link format, the web page, the tests or the game docs.
 
 3. <a id="3"></a>Making the change
 

@@ -1,14 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES } from '../src/shared/hex.js';
-import { createInitialState } from '../src/shared/scenario.js';
+import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
 import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE } from '../src/shared/engine.js';
-import type { AttackEvent, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
+import type { AttackEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
+/** Simple unit types for rule tests (the eras' own units are tested separately). */
+const TEST_UNITS: Record<string, Datasheet> = {
+  infantry: { name: 'Infantry', code: 'I', points: 20, move: 4, sight: 5, strength: 4, climb: 1 },
+  scout: { name: 'Scout', code: 'S', points: 15, move: 6, sight: 7, strength: 2, climb: 2 },
+  heavy: { name: 'Heavy', code: 'H', points: 40, move: 3, sight: 4, strength: 6, climb: 1 },
+};
+const START = [
+  ['1,4', '1,7', '2,5', '0,6'], ['14,4', '14,7', '13,6', '15,5'], ['6,1', '9,1', '7,2', '8,0'], ['6,10', '9,10', '8,9', '7,11'],
+];
+const ROSTER = ['infantry', 'infantry', 'scout', 'heavy'];
+
+/** A battle on a flat, open 16×12 map, each player with four units at fixed hexes. */
 function openState(players = 2): GameState {
-  const s = createInitialState('crossroads', Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
-  s.map.terrain.fill('open'); // flat, open map for predictable tests
+  const s = createSetupState('ww2', 'small', 150, Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
+  s.map.terrain.fill('open');
   s.map.elevation.fill(0);
+  s.datasheets = TEST_UNITS;
+  s.phase = 'battle';
+  s.turn = 1;
+  let n = 0;
+  s.units = s.players.flatMap((p) => START[p.side].map((hex, i) => ({
+    id: `u${++n}`, owner: p.id, type: ROSTER[i], name: `${TEST_UNITS[ROSTER[i]].name} ${i + 1}`, hex, facing: facingToward(hex, '8,6'), strength: TEST_UNITS[ROSTER[i]].strength,
+  })));
   return s;
 }
 
@@ -140,22 +159,6 @@ test('game ends after the last player of the final round', () => {
   assert.ok(events.some((e) => e.type === 'gameover'));
 });
 
-test('large scenario: every unit starts on its own passable hex inside the map', () => {
-  for (const players of [2, 3, 4]) {
-    const s = createInitialState('valley', Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 7);
-    assert.equal(s.map.cols * s.map.rows, s.map.terrain.length);
-    assert.equal(s.units.length, players * 12);
-    const hexes = new Set(s.units.map((u) => u.hex));
-    assert.equal(hexes.size, s.units.length, 'no two units share a hex');
-    for (const u of s.units) {
-      const [c, r] = u.hex.split(',').map(Number);
-      assert.ok(c >= 0 && r >= 0 && c < s.map.cols && r < s.map.rows, `${u.hex} in bounds`);
-      assert.notEqual(s.map.terrain[r * s.map.cols + c], 'water');
-    }
-    assert.equal(s.objectives.length, 5);
-  }
-});
-
 test('facing: directions and arcs', () => {
   neighbors('5,5').forEach((n, i) => assert.equal(facingToward('5,5', n), i, `toward neighbour ${i}`));
   const arcs = neighbors('5,5').map((n) => arcOf('5,5', 0, n));
@@ -262,8 +265,8 @@ test('elevation: higher ground adds to the attack, attacking uphill takes away',
 
 test('elevation: generated with the map, the same for the same seed, hills higher', () => {
   const players = [{ id: 'p0', side: 0 }, { id: 'p1', side: 1 }];
-  const a = createInitialState('valley', players, 11).map;
-  const b = createInitialState('valley', players, 11).map;
+  const a = createSetupState('ww2', 'large', 150, players, 11).map;
+  const b = createSetupState('ww2', 'large', 150, players, 11).map;
   assert.deepEqual(a.elevation, b.elevation);
   assert.equal(a.elevation.length, a.cols * a.rows);
   assert.ok(a.elevation.every((e) => Number.isInteger(e) && e >= 0 && e <= 4));
@@ -271,8 +274,75 @@ test('elevation: generated with the map, the same for the same seed, hills highe
   a.terrain.forEach((t, i) => { if (t === 'water') assert.equal(a.elevation[i], 0); });
 });
 
-test('scenario units start facing the centre of the map', () => {
-  const s = createInitialState('crossroads', [{ id: 'p0', side: 0 }, { id: 'p1', side: 1 }], 1);
-  assert.ok(s.units.filter((u) => u.owner === 'p0').every((u) => ['E', 'NE', 'SE'].includes(FACING_NAMES[u.facing])));
-  assert.ok(s.units.filter((u) => u.owner === 'p1').every((u) => ['W', 'NW', 'SW'].includes(FACING_NAMES[u.facing])));
+// ---------------------------------------------------------------- setup and turn 0
+
+const setup = (players = 2, era = 'napoleonic', size = 'small', points = 100) =>
+  createSetupState(era, size, points, Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 5);
+
+test('setup: each era has its own terrain and armies, and unit types are unique across the era', () => {
+  for (const era of Object.values(ERAS)) {
+    assert.ok(era.armies.length >= 2);
+    const all = era.armies.flatMap((a) => Object.keys(a.units));
+    assert.equal(new Set(all).size, all.length, 'unit ids are unique within the era');
+    assert.ok(Object.values(eraDatasheets(era)).every((u) => u.points > 0 && u.climb >= 1));
+  }
+  const nap = setup(2, 'napoleonic', 'medium');
+  assert.ok(nap.map.terrain.includes('village') && !nap.map.terrain.includes('ruins'));
+  const ww2 = setup(2, 'ww2', 'medium');
+  assert.ok(ww2.map.terrain.includes('ruins') && !ww2.map.terrain.includes('village'));
+  assert.equal(nap.phase, 'deploy');
+  assert.equal(nap.units.length, 0);
+  assert.deepEqual([nap.map.cols, nap.map.rows], [24, 18]);
+});
+
+test('setup: starting zones are on separate edges and never overlap', () => {
+  for (const size of Object.values(MAP_SIZES)) {
+    const zones = [0, 1, 2, 3].map((side) => startingZone(size, side));
+    const all = zones.flat();
+    assert.equal(new Set(all).size, all.length, `${size.id}: no hex in two zones`);
+    assert.ok(zones.every((z) => z.length >= 2 * size.rows / 2), `${size.id}: zones have room`);
+    assert.ok(zones[0].every((h) => Number(h.split(',')[0]) < size.zoneDepth), 'player 1: west edge');
+    assert.ok(zones[1].every((h) => Number(h.split(',')[0]) >= size.cols - size.zoneDepth), 'player 2: east edge');
+  }
+  const s = setup(4, 'ww2', 'large');
+  for (const p of s.players) {
+    for (const h of zoneOf(s, p.id)) {
+      const [c, r] = h.split(',').map(Number);
+      assert.notEqual(s.map.terrain[r * s.map.cols + c], 'water', 'no water in a starting zone');
+    }
+  }
+});
+
+test('deployment: the army must be from the era, units from the army, in the zone, within the points', () => {
+  const s = setup(2, 'napoleonic', 'small', 100);
+  const ok = (d: unknown) => validateDeployment(s, 'p0', d);
+  assert.equal(ok({ army: 'french', units: [{ type: 'french.line', hex: '0,3' }, { type: 'french.hussars', hex: '1,3' }] }).ok, true);
+  assert.match(ok({ army: 'us', units: [] }).errors[0], /era's armies/);
+  assert.match(ok({ army: 'french', units: [] }).errors.join(), /at least one unit/);
+  assert.match(ok({ army: 'french', units: [{ type: 'british.line', hex: '0,3' }] }).errors.join(), /not a unit of the French/);
+  assert.match(ok({ army: 'french', units: [{ type: 'french.line', hex: '5,5' }] }).errors.join(), /starting zone/);
+  assert.match(ok({ army: 'french', units: [{ type: 'french.line', hex: '0,3' }, { type: 'french.line', hex: '0,3' }] }).errors.join(), /already taken/);
+  // 3 × Old Guard = 120 points > 100.
+  assert.match(ok({ army: 'french', units: ['0,1', '0,2', '0,3'].map((hex) => ({ type: 'french.guard', hex })) }).errors.join(), /120 points; the limit is 100/);
+  assert.equal(ok({ army: 'french', units: ['0,1', '0,2'].map((hex) => ({ type: 'french.guard', hex })).concat([{ type: 'french.line', hex: '0,3' }]) }).ok, true, 'exactly 100 is allowed');
+});
+
+test('deployment: players deploy in turn, then round 1 begins with the first player', () => {
+  let s = setup(3, 'ww2', 'small', 100);
+  const d0 = resolveDeployment(s, { army: 'us', units: [{ type: 'us.rifles', hex: '0,4' }, { type: 'us.sherman', hex: '1,5' }] });
+  assert.equal(d0.events[0].points, 65);
+  s = d0.state;
+  assert.equal(s.phase, 'deploy');
+  assert.equal(s.current, 1);
+  assert.equal(s.armies.p0, 'us');
+  assert.deepEqual(s.units.map((u) => [u.id, u.owner, u.name]), [['u1', 'p0', 'Rifle Squad 1'], ['u2', 'p0', 'Sherman 1']]);
+  assert.equal(s.units[0].facing, facingToward('0,4', '8,6'), 'units face the centre of the map');
+  assert.throws(() => resolvePlayerTurn(s, {}), /still deploying/);
+  s = resolveDeployment(s, { army: 'german', units: [{ type: 'german.panzer', hex: '15,5' }] }).state;
+  assert.throws(() => resolveDeployment(s, { army: 'us', units: [{ type: 'us.rifles', hex: '0,4' }] }), /starting zone/, 'player 3 deploys on the north edge');
+  s = resolveDeployment(s, { army: 'us', units: [{ type: 'us.recon', hex: '6,0' }] }).state;
+  assert.equal(s.phase, 'battle');
+  assert.equal(s.turn, 1);
+  assert.equal(s.current, 0);
+  assert.equal(s.units.length, 4);
 });

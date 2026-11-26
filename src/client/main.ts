@@ -1,14 +1,15 @@
 // Battle Lines in the browser, no server: the whole game travels in the link's #fragment.
 //
-//   (no link)   start a new game, or reopen a recent one
-//   game link   see the battlefield; the player whose turn it is gives orders and ends their
-//               turn, which produces the link for the next player
+//   (no link)   set up a new game (era, map size, points, players), or reopen a recent one
+//   game link   see the battlefield; on turn 0 the player whose turn it is picks an army and
+//               places units; after that they give orders. Either way, finishing produces the
+//               link for the next player.
 import { mountBoard, SIDE_COLORS, SIDE_NAMES, type BoardContext, type BoardPlayer } from './board.js';
 import { esc, store } from './util.js';
-import { SCENARIOS } from '../shared/scenario.js';
+import { ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, MAX_PLAYERS, zoneOf } from '../shared/setup.js';
 import { boardView, previewTurn, attackOptions } from '../shared/engine.js';
 import {
-  createGame, endTurn, readGame, encodeGame, verifyReplay, turnsSince, packState, playerId,
+  createGame, endTurn, deploy, readGame, encodeGame, verifyReplay, turnsSince, packState, playerId,
   type Game, type GameLink, type PackedState, type TurnRecord,
 } from '../shared/game.js';
 import { LinkError } from '../shared/link.js';
@@ -35,8 +36,12 @@ const urlFor = (hash: string) => `${location.origin}${location.pathname}#${hash}
 /** Show a new link in the address bar without adding a history entry to go "back" to. */
 const showInAddressBar = (hash: string) => history.replaceState(null, '', `#${hash}`);
 
-const statusOf = (g: Game) => (g.state.finished ? 'finished' : `round ${g.state.turn} · ${g.link.players[g.state.current]} to move`);
-const boardPlayers = (link: GameLink): BoardPlayer[] => link.players.map((name, i) => ({ id: playerId(i), name, side: i }));
+const statusOf = (g: Game) => (g.state.finished ? 'finished'
+  : g.state.phase === 'deploy' ? `turn 0 · ${g.link.players[g.state.current]} to deploy`
+    : `round ${g.state.turn} · ${g.link.players[g.state.current]} to move`);
+const armyName = (g: Game, id: string | null) => ERAS[g.state.era].armies.find((a) => a.id === id)?.name;
+const boardPlayers = (g: Game): BoardPlayer[] =>
+  g.link.players.map((name, i) => ({ id: playerId(i), name, side: i, army: armyName(g, g.state.armies[playerId(i)]) }));
 
 function page(html: string): void {
   window.onbeforeunload = null;
@@ -101,15 +106,17 @@ function formAction(form: HTMLFormElement, action: (data: FormData) => Promise<v
 }
 
 function reportSections(link: GameLink, turns: TurnRecord[]): BoardContext['reports'] {
-  return turns.map((r) => ({ title: `${link.players[r.p]}, round ${r.t}`, events: r.e }));
+  return turns.map((r) => ({ title: `${link.players[r.p]}, ${r.t === 0 ? 'deployment' : `round ${r.t}`}`, events: r.e }));
 }
 
 // ---------------------------------------------------------------- screens
 
 function homeScreen(): void {
   const games = Object.values(store.get<Record<string, SavedGame>>(GAMES_KEY) ?? {}).sort((a, b) => b.updated - a.updated);
-  const scenarioOptions = Object.values(SCENARIOS).map((sc) =>
-    `<option value="${esc(sc.id)}">${esc(sc.name)} (${sc.cols}×${sc.rows} map, ${sc.roster.length} units each)</option>`).join('');
+  const eraOptions = Object.values(ERAS).map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+  const sizeOptions = Object.values(MAP_SIZES).map((m) => `<option value="${esc(m.id)}" ${m.id === 'medium' ? 'selected' : ''}>${esc(m.name)} (${m.cols}×${m.rows}, ${m.turnLimit} rounds)</option>`).join('');
+  const pointOptions = POINT_LIMITS.map((n) => `<option value="${n}" ${n === 150 ? 'selected' : ''}>${n} points</option>`).join('');
+  const countOptions = Array.from({ length: MAX_PLAYERS - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i).map((n) => `<option value="${n}">${n}</option>`).join('');
   page(`
     <section class="hero"><h1>Correspondence warfare, one link at a time.</h1>
       <p>Battle Lines runs entirely in your browser. The whole game travels in a link: take your turn,
@@ -117,12 +124,16 @@ function homeScreen(): void {
     <section class="card"><h2>Start a new game</h2>
       <form id="create" class="form">
         <label>Game name <input name="gameName" maxlength="60" placeholder="Battle of the Crossroads"></label>
-        <label>Scenario <select name="scenario">${scenarioOptions}</select></label>
-        <label>Number of players <select name="count"></select></label>
+        <label>Era <select name="era">${eraOptions}</select></label>
+        <p class="hint" id="era-about"></p>
+        <label>Map size <select name="size">${sizeOptions}</select></label>
+        <label>Point limit (per player) <select name="points">${pointOptions}</select></label>
+        <label>Number of players <select name="count">${countOptions}</select></label>
         <div id="names"></div>
-        <p class="hint">Players take turns in this order. You are player 1 and take the first turn.</p>
+        <p class="hint">The game puts the players in a random order. On turn 0, each player in turn picks an army
+          from the era and places units in their starting zone, up to the point limit. Then the battle begins.</p>
         <p class="error" hidden></p>
-        <button type="submit">Create game and take the first turn</button>
+        <button type="submit">Create game</button>
       </form></section>
     ${games.length ? `<section class="card"><h2>Your recent games</h2><p class="hint">Remembered by this browser only.</p>
       <table class="roster"><tr><th>Game</th><th>Status</th><th>Last opened</th></tr>
@@ -134,40 +145,56 @@ function homeScreen(): void {
         <button type="submit" class="secondary">Open</button></form></section>`);
 
   const form = document.getElementById('create') as HTMLFormElement;
-  const scenarioSel = form.elements.namedItem('scenario') as HTMLSelectElement;
+  const eraSel = form.elements.namedItem('era') as HTMLSelectElement;
   const countSel = form.elements.namedItem('count') as HTMLSelectElement;
   const namesDiv = document.getElementById('names')!;
+  const about = document.getElementById('era-about')!;
   const fillNames = () => {
     const typed = [...namesDiv.querySelectorAll('input')].map((i) => i.value);
     namesDiv.innerHTML = Array.from({ length: Number(countSel.value) }, (_, i) =>
-      `<label><span class="swatch" style="background:${SIDE_COLORS[i]}"></span> Player ${i + 1} (${SIDE_NAMES[i]})${i === 0 ? ' — you' : ''}
+      `<label>Player name ${i + 1}${i === 0 ? ' (you)' : ''}
         <input name="player" required maxlength="30" value="${esc(typed[i] ?? '')}"></label>`).join('');
   };
-  const fillCounts = () => {
-    const sc = SCENARIOS[scenarioSel.value];
-    const keep = Number(countSel.value) || sc.minPlayers;
-    countSel.innerHTML = Array.from({ length: sc.maxPlayers - sc.minPlayers + 1 }, (_, i) => sc.minPlayers + i)
-      .map((n) => `<option value="${n}" ${n === keep ? 'selected' : ''}>${n}</option>`).join('');
-    fillNames();
+  const fillAbout = () => {
+    const era = ERAS[eraSel.value];
+    about.textContent = `${era.description} Armies: ${era.armies.map((a) => a.name).join(', ')}.`;
   };
-  scenarioSel.onchange = fillCounts;
+  eraSel.onchange = fillAbout;
   countSel.onchange = fillNames;
-  fillCounts();
+  fillAbout();
+  fillNames();
   formAction(form, async (data) => {
     const game = createGame({
-      gameName: String(data.get('gameName') ?? ''), scenario: String(data.get('scenario')),
-      players: data.getAll('player').map(String),
+      gameName: String(data.get('gameName') ?? ''), era: String(data.get('era')), size: String(data.get('size')),
+      points: Number(data.get('points')), players: data.getAll('player').map(String),
     });
     const hash = await encodeGame(game.link);
     showInAddressBar(hash);
     remember(game.link, hash, statusOf(game));
-    playScreen(game);
+    createdScreen(game, hash);
   });
   formAction(document.getElementById('paste') as HTMLFormElement, async (data) => {
     const text = String(data.get('link') ?? '').trim();
     if (!text.includes('#')) throw new LinkError('That doesn\'t look like a Battle Lines link.');
     location.hash = text.slice(text.indexOf('#') + 1);
   });
+}
+
+/** A new game: show the random turn order and the link for the first player. */
+function createdScreen(game: Game, hash: string): void {
+  const { link, state } = game;
+  const first = link.players[0];
+  const era = ERAS[state.era];
+  const subject = `Battle Lines: ${link.name} — you deploy first, ${first}`;
+  page(`<section class="card"><h2>${esc(link.name)}</h2>
+      <p>${esc(era.name)} · ${esc(MAP_SIZES[state.size].name)} map · ${state.pointLimit} points per player.</p>
+      <h3>Turn order</h3>
+      <ol class="order">${link.players.map((n, i) => `<li><span class="swatch" style="background:${SIDE_COLORS[i]}"></span> ${esc(n)} <span class="small">(${SIDE_NAMES[i]})</span></li>`).join('')}</ol>
+      <p class="hint">The order was drawn at random. Each player deploys in this order, then takes their turns in it.</p>
+      <div class="row"><button id="deploy-now">I'm ${esc(first)}: deploy now</button></div></section>
+    ${shareCard(hash, `Or send this link to ${first}`, `${first} picks an army and places units first.`, subject)}`);
+  wireShare(app, hash, subject);
+  document.getElementById('deploy-now')!.onclick = () => deployScreen(game);
 }
 
 /** Someone opened a game link: show the battlefield and whose turn it is. */
@@ -180,18 +207,63 @@ function gameScreen(game: Game, hash: string): void {
     gameName: link.name,
     round: state.turn,
     turnLimit: state.turnLimit,
-    players: boardPlayers(link),
+    players: boardPlayers(game),
     current: playerId(state.current),
     me: null,
     view: boardView(state, null),
     mode: 'review',
     reports: reportSections(link, turnsSince(link, state.current)),
-    topCard: `<div class="card share"><h3>Round ${state.turn} · ${esc(who)}'s turn</h3>
-      <p class="small">Below is what has happened since ${esc(who)} last moved.</p>
-      <div class="row"><button data-play>Play ${esc(who)}'s turn</button></div></div>`,
+    topCard: state.phase === 'deploy'
+      ? `<div class="card share"><h3>Turn 0 · ${esc(who)} deploys</h3>
+        <p class="small">${esc(who)} picks an army from the ${esc(ERAS[state.era].name)} and places units in their starting zone, up to ${state.pointLimit} points.</p>
+        <div class="row"><button data-play>Deploy ${esc(who)}'s army</button></div></div>`
+      : `<div class="card share"><h3>Round ${state.turn} · ${esc(who)}'s turn</h3>
+        <p class="small">Below is what has happened since ${esc(who)} last moved.</p>
+        <div class="row"><button data-play>Play ${esc(who)}'s turn</button></div></div>`,
     afterRender: (root) => {
       const btn = root.querySelector<HTMLButtonElement>('[data-play]');
-      if (btn) btn.onclick = () => playScreen(game);
+      if (btn) btn.onclick = () => (state.phase === 'deploy' ? deployScreen(game) : playScreen(game));
+    },
+  });
+}
+
+function checkNotice(game: Game, me: number): BoardContext['notice'] {
+  const check = verifyReplay(game.link, store.get<PackedState>(stateKey(game.link.id, me)));
+  return check === 'verified'
+    ? { kind: 'ok', html: '✓ Checked: the other players\' turns replay exactly from the position you sent.' }
+    : check === 'mismatch'
+      ? { kind: 'warn', html: '⚠ This position does not match a replay of the other players\' turns from the position you sent. The link may have been altered.' }
+      : undefined;
+}
+
+/** Turn 0: the current player picks an army and places units. */
+function deployScreen(game: Game): void {
+  const { link, state } = game;
+  const me = state.current;
+  const era = ERAS[state.era];
+  mountBoard(app, {
+    gameName: link.name,
+    round: 0,
+    turnLimit: state.turnLimit,
+    players: boardPlayers(game),
+    current: playerId(me),
+    me: playerId(me),
+    view: boardView(state, playerId(me)),
+    mode: 'deploy',
+    reports: reportSections(link, turnsSince(link, me)),
+    notice: checkNotice(game, me),
+    deploy: {
+      armies: era.armies,
+      zone: zoneOf(state, playerId(me)),
+      pointLimit: state.pointLimit,
+      onFinish: async (d) => {
+        const ended = deploy(game, d);
+        const hash = await encodeGame(ended.link);
+        store.set(stateKey(link.id, me), packState(ended.state));
+        showInAddressBar(hash);
+        remember(ended.link, hash, statusOf(ended));
+        sentScreen(ended, hash, me, ended.events);
+      },
     },
   });
 }
@@ -199,17 +271,12 @@ function gameScreen(game: Game, hash: string): void {
 function playScreen(game: Game): void {
   const { link, state } = game;
   const me = state.current;
-  const check = verifyReplay(link, store.get<PackedState>(stateKey(link.id, me)));
-  const notice = check === 'verified'
-    ? { kind: 'ok' as const, html: '✓ Checked: the other players\' moves replay exactly from the position you sent.' }
-    : check === 'mismatch'
-      ? { kind: 'warn' as const, html: '⚠ This position does not match a replay of the other players\' orders from the position you sent. The link may have been altered.' }
-      : undefined;
+  const notice = checkNotice(game, me);
   mountBoard(app, {
     gameName: link.name,
     round: state.turn,
     turnLimit: state.turnLimit,
-    players: boardPlayers(link),
+    players: boardPlayers(game),
     current: playerId(me),
     me: playerId(me),
     view: boardView(state, playerId(me)),
@@ -233,20 +300,25 @@ function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): 
   const { link, state } = game;
   const finished = state.finished;
   const next = link.players[state.current];
-  const subject = finished ? `Battle Lines: ${link.name} — the battle is over` : `Battle Lines: ${link.name} — your move, ${next}`;
+  const deploying = state.phase === 'deploy';
+  const subject = finished ? `Battle Lines: ${link.name} — the battle is over`
+    : `Battle Lines: ${link.name} — ${deploying ? 'your turn to deploy' : 'your move'}, ${next}`;
   const card = finished
     ? shareCard(hash, 'Send the final link to everyone', 'The battle is over. This link shows the final position.', subject)
-    : shareCard(hash, `Send this link to ${next}`, `Your turn is done. ${next} moves next.`, subject);
+    : shareCard(hash, `Send this link to ${next}`,
+      deploying ? `Your army is in place. ${next} deploys next.`
+        : state.turn === 1 && events.some((e) => e.type === 'deploy') ? `Everyone has deployed: the battle begins! ${next} moves first.`
+          : `Your turn is done. ${next} moves next.`, subject);
   mountBoard(app, {
     gameName: link.name,
     round: state.turn,
     turnLimit: state.turnLimit,
-    players: boardPlayers(link),
+    players: boardPlayers(game),
     current: finished ? null : playerId(state.current),
     me: playerId(me),
     view: boardView(state, playerId(me)),
     mode: 'review',
-    reports: [{ title: 'Your turn', events }],
+    reports: [{ title: events.some((e) => e.type === 'deploy') ? 'Your deployment' : 'Your turn', events }],
     notice: { kind: 'ok', html: 'Turn complete. Send the link below to continue the game.' },
     topCard: card,
     afterRender: (root) => wireShare(root, hash, subject),
@@ -259,7 +331,7 @@ function finalScreen(game: Game): void {
     gameName: link.name,
     round: state.turn,
     turnLimit: state.turnLimit,
-    players: boardPlayers(link),
+    players: boardPlayers(game),
     current: null,
     me: null,
     view: boardView(state, null),

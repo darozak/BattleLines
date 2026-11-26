@@ -10,28 +10,35 @@ turn at a time.
 
 ## How a game works
 
-1. **Start a game.** Open the site, pick a scenario, and enter every player's name in turn order.
-   You're player 1 and take the first turn straight away.
-2. **Give orders.** Click one of your units, in the unit table or on the map, to open its datasheet.
+1. **Set up.** Open the site and choose the era, the map size, the point limit and the number of
+   players, and name every player. The game puts the players in a random order.
+2. **Deploy (turn 0).** Each player in turn picks one of the era's armies, then chooses units from it
+   and places them in their starting zone, up to the point limit, and passes the link on. Later
+   players can see where earlier players deployed. The battle begins once everyone has deployed.
+3. **Give orders.** Click one of your units, in the unit table or on the map, to open its datasheet.
    Click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
    more than one enemy will be in reach, which one to attack.
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
-3. **End your turn.** Your units move, then attack any enemy next to them, then score for the
+4. **End your turn.** Your units move, then attack any enemy next to them, then score for the
    objectives they hold. The page gives you a link for the next player, with buttons to copy,
    email or share it.
-4. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,
-   and plays their turn. Each link starts with whose turn it is, for example `…/#Round3-Bob/…`.
-5. **Win.** The battle ends after the last round, or when only one army is left. The player with the
+5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,
+   and plays their turn. Each link starts with whose turn it is, for example `…/#Deploy-Cara/…` or `…/#Round3-Bob/…`.
+6. **Win.** The battle ends after the last round, or when only one army is left. The player with the
    most points wins.
 
 ## What's in the game
 
-- **Hex battlefields** that scroll and zoom: a small skirmish map and a large 40×30 valley, with roads,
-  woods, hills, ruins and water that affect movement, sight and cover.
+- **Eras**: each with its own terrain and its own armies, and units unique to each army. For now:
+  the Napoleonic Wars (French Empire, British Army) and the Second World War (US Infantry Division,
+  German Panzergrenadiers).
+- **Hex battlefields** in three sizes (16×12, 24×18 and 40×30) that scroll and zoom, with roads,
+  woods, hills, villages or ruins, and water that affect movement, sight and cover.
 - **Elevation**: every hex has a height. Most units can climb or descend only one level per step
-  (scouts can manage two), so steep drops act as cliffs. Attacking from higher ground is stronger;
+  (light troops can manage two), so steep drops act as cliffs. Attacking from higher ground is stronger;
   attacking uphill is weaker.
-- **Units with datasheets**: infantry, scouts and heavy units, each with its own move, climb, sight and strength.
+- **Units with datasheets**: each with its own point cost, move, climb, sight and strength. Light troops
+  climb two levels per step; the rest climb one.
   Every unit faces one of the six hexsides; attacks on a unit's flank or rear are stronger.
 - **Nothing hidden**: every player sees the whole battlefield, as in chess.
 - **No dice**: combat is decided by a tally of modifiers (strength, flank or rear, height, cover), and the
@@ -42,8 +49,8 @@ turn at a time.
   the web server. Your browser remembers your recent games so you can reopen them.
 
 The movement, combat and scoring rules are **placeholders** while the real rules are written
-([rules.md](rules.md), [#4](https://github.com/darozak/BattleLines/issues/4)). Unit datasheets,
-hand-made scenarios and more are planned: see the [open issues](https://github.com/darozak/BattleLines/issues).
+([rules.md](rules.md), [#4](https://github.com/darozak/BattleLines/issues/4)), and so are the eras' armies and
+unit values. Hand-made maps and more are planned: see the [open issues](https://github.com/darozak/BattleLines/issues).
 
 ## Design goals
 
@@ -81,11 +88,12 @@ pull requests are tested by `.github/workflows/tests.yml`. See [AD-03](Procedure
 
 - `src/shared/`: everything that defines the game, used by the browser and the tests.
   - `engine.ts`: the rules engine (pure functions). Resolves a player's turn.
-  - `scenario.ts`: placeholder maps, units and datasheets. `hex.ts`: hex maths and facing. `terrain.ts`: terrain table.
+  - `setup.ts`: eras, armies and unit datasheets (placeholders), map sizes, point limits, starting zones, map generation, and turn 0 (deployment).
+  - `hex.ts`: hex maths and facing. `terrain.ts`: terrain table.
   - `link.ts`: the link encoding (compression, base64url).
-  - `game.ts`: create a game, end a turn, read a link, check the other players' moves by replay.
+  - `game.ts`: set up a game, deploy, end a turn, read a link, check the other players' turns by replay.
   - `types.ts`: data shapes.
-- `src/client/`: the web page. `main.ts`: screens (start, play a turn, send the link). `board.ts`: the map, unit tables and datasheets.
+- `src/client/`: the web page. `main.ts`: screens (set up, deploy, play a turn, send the link). `board.ts`: the map, unit tables, datasheets and deployment.
 - `public/`: `index.html` and `style.css`.
 - `scripts/`: site assembly and a small local web server.
 - `test/`: engine tests, and link/game tests (round trips, damaged links, replay checks, link sizes).

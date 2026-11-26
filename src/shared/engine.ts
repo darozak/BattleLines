@@ -277,6 +277,7 @@ const hasUnits = (state: GameState, id: PlayerId) => state.units.some((u) => u.o
  */
 export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): TurnResolution {
   if (prevState.finished) throw new Error('The game is over.');
+  if (prevState.phase === 'deploy') throw new Error('Players are still deploying.');
   const state = structuredClone(prevState);
   const active = currentPlayer(state);
   const events: GameEvent[] = [];
@@ -331,7 +332,7 @@ export function boardView(state: GameState, viewer: PlayerId | null): PlayerView
     turnLimit: state.turnLimit,
     finished: state.finished,
     result: state.result,
-    eliminated: state.players.filter((p) => !alive(state).some((u) => u.owner === p.id)).map((p) => p.id),
+    eliminated: state.phase === 'deploy' ? [] : state.players.filter((p) => !alive(state).some((u) => u.owner === p.id)).map((p) => p.id),
   };
 }
 

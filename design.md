@@ -11,9 +11,15 @@ Earlier designs are in the git history: a server-refereed version with simultane
 fog of war was dropped because it complicated play and invited players to dig into the page to peek.
 
 ## Game Lifecycle
-1. **Create:** a player picks a scenario and enters every player's name, in turn order. They are player 1
-   and take the first turn straight away.
-2. **Each turn:**
+1. **Set up:** the first player chooses the era, the map size, the point limit and the number of players,
+   and names every player. The game shuffles the players into a random turn order and shows the link for
+   the first player.
+2. **Turn 0, deployment:** each player in turn order opens the link, picks one of the era's armies, then
+   chooses units from that army and places them in their starting zone, within the point limit (the total
+   may equal the limit). Earlier players' units are visible. When the last player has deployed, round 1
+   begins with the first player. Starting zones are strips along the edges, by turn order: west, east,
+   north, south. Units face the centre of the map when placed.
+3. **Each turn:**
    - The player opens the link. They see the battlefield and a report of every turn since they last moved,
      and press "Play <name>'s turn".
    - Their browser replays the other players' orders from the position it sent last time and checks the
@@ -21,7 +27,7 @@ fog of war was dropped because it complicated play and invited players to dig in
    - They give orders (move paths and end-of-turn facing) and end their turn. Their units move, then attack,
      then score.
    - The page produces the link for the next player, with buttons to copy, email or share it.
-3. **Rounds:** a round ends when every player has moved. The game ends after the last round, or when only
+4. **Rounds:** a round ends when every player has moved. The game ends after the last round, or when only
    one army is left.
 
 ## The Link
@@ -32,17 +38,18 @@ https://<site>/#Round3-Bob/<base64url(deflate(JSON))>
 
 Everything is after `#`, which browsers never send to the web server, so the host never sees games.
 
-- **Label:** every link starts with a readable label showing the round and whose turn it is
-  (`Round3-Bob`), or `Final` once the battle is over. Names are reduced to plain letters and digits
+- **Label:** every link starts with a readable label showing what it waits for: `Deploy-Cara` on turn 0,
+  `Round3-Bob` in battle, or `Final` once the battle is over. Names are reduced to plain letters and digits
   (`Player2` if nothing is left). The label is only for people: the page ignores it when reading the
   link, so editing it changes nothing.
 
-- **Contents:** link version, game id, name, scenario, map seed, player names, the changing state (unit positions,
-  facings and strengths; scores; round and whose turn it is), and the last round of player-turns (orders and
+- **Contents:** link version, game id, name, era, map size, point limit, map seed, player names in turn order,
+  the changing state (phase; each player's army; each unit's type, owner, position, facing and strength;
+  scores; round and whose turn it is), and the last round of player-turns (orders and
   what happened), used for reports and replay checks.
-- **Not in the link:** the map, datasheets and unit names. They are rebuilt from the scenario and seed.
-- **Size:** about 470 characters for 2 players on the small map, up to about 1,350 for 4 players on the
-  large map.
+- **Not in the link:** the map, datasheets and unit names. They are rebuilt from the era, map size and seed.
+- **Size:** after three rounds, about 650 characters for 2 players on the small map, and about 1,700 for 4
+  players with 44 units on the large map.
 
 ## Prescriptive Combat and Fair Play
 - There are no dice. Every attack's result is fixed by a tally of modifiers, so the same position and the
@@ -83,7 +90,7 @@ current version of the site should be kept available (for example under `/v2/`) 
 
 ## Open Questions
 - **Selling unit cards:** anything on a static site can be read by anyone, so paid datasheets can't be locked.
-  Options include an honour system, selling printed or premium scenario packs, or a small licence check later.
+  Options include an honour system, selling printed or premium era and army packs, or a small licence check later.
 - **Rules:** what turning costs, what front/flank/rear do in combat, and whether facing limits sight or fire
   (see [darozak/BattleLines#4](https://github.com/darozak/BattleLines/issues/4)).
 - **Recovering lost links:** the browser remembers recent games, but only on the device that played them.

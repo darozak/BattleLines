@@ -14,7 +14,7 @@
 
    3. <a id="3.3"></a>Follow the SOP that governs the work:
 
-      1. <a id="3.3.1"></a>the rules engine, scenarios, link format, web page, tests and game docs: [DV-01](../SOPs/DV-01%20Making%20and%20testing%20game%20changes.md);
+      1. <a id="3.3.1"></a>the rules engine, eras and armies, link format, web page, tests and game docs: [DV-01](../SOPs/DV-01%20Making%20and%20testing%20game%20changes.md);
 
       2. <a id="3.3.2"></a>an SOP or attachment: [QA-01](../SOPs/QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md).
 

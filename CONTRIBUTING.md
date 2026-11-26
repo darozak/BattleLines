@@ -1,6 +1,6 @@
 # Contributing to Battle Lines
 
-Thank you for helping. Battle Lines is a free, open-source correspondence hex wargame that runs in the browser: the whole game travels in a link that players pass to each other. Contributions of every size are welcome: a typo fix, a bug report, a rule idea, a new scenario.
+Thank you for helping. Battle Lines is a free, open-source correspondence hex wargame that runs in the browser: the whole game travels in a link that players pass to each other. Contributions of every size are welcome: a typo fix, a bug report, a rule idea, a new era or army.
 
 ## Ways to help
 

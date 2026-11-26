@@ -7,7 +7,7 @@ export type Facing = 0 | 1 | 2 | 3 | 4 | 5;
 export type PlayerId = string;
 export type UnitId = string;
 
-export type TerrainType = 'open' | 'road' | 'woods' | 'hills' | 'ruins' | 'water';
+export type TerrainType = 'open' | 'road' | 'woods' | 'hills' | 'ruins' | 'village' | 'water';
 
 export interface Terrain {
   name: string;
@@ -22,6 +22,8 @@ export interface Terrain {
 
 export interface Datasheet {
   name: string;
+  /** Cost to deploy, against the game's point limit. */
+  points: number;
   /** One or two letters drawn on the unit counter. */
   code: string;
   move: number;
@@ -56,7 +58,16 @@ export interface GameResult {
 }
 
 export interface GameState {
-  scenario: string;
+  /** Era id (see setup.ts): decides the terrain, the armies and their units. */
+  era: string;
+  /** Map size id (see setup.ts). */
+  size: string;
+  /** Most points of units each player may deploy. */
+  pointLimit: number;
+  /** 'deploy': turn 0, players pick an army and place units in turn. 'battle': rounds 1 and up. */
+  phase: 'deploy' | 'battle';
+  /** The army each player picked (null until they deploy). */
+  armies: Record<PlayerId, string | null>;
   /** Game seed, used to generate the map. (There are no dice: combat is decided by a tally of modifiers.) */
   seed: number;
   /** Round number. A round ends when every player has taken a turn. */
@@ -159,7 +170,15 @@ export interface ScoreEvent {
 export interface GameOverEvent extends GameResult {
   type: 'gameover';
 }
-export type GameEvent = MoveEvent | HaltEvent | TurnEvent | ClashEvent | AttackEvent | DestroyedEvent | ScoreEvent | GameOverEvent;
+/** A player picked an army and placed their units (turn 0). */
+export interface DeployEvent {
+  type: 'deploy';
+  player: PlayerId;
+  army: string;
+  units: number;
+  points: number;
+}
+export type GameEvent = DeployEvent | MoveEvent | HaltEvent | TurnEvent | ClashEvent | AttackEvent | DestroyedEvent | ScoreEvent | GameOverEvent;
 
 // ---------------------------------------------------------------- the board as shown to a player
 

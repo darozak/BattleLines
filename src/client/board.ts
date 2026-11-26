@@ -7,6 +7,7 @@ import type {
   AttackEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
 import type { AttackOption, TurnPreview } from '../shared/engine.js';
+import type { Army, Deployment, Placement } from '../shared/setup.js';
 import { esc } from './util.js';
 
 type OwnUnit = Extract<VisibleUnit, { own: true }>;
@@ -17,7 +18,7 @@ interface Plan { path: HexKey[]; facing?: Facing; target?: UnitId }
 export const SIDE_COLORS = ['#2b6cb0', '#c53030', '#2f855a', '#b7791f'];
 export const SIDE_NAMES = ['Blue', 'Red', 'Green', 'Gold'];
 
-export interface BoardPlayer { id: PlayerId; name: string; side: number }
+export interface BoardPlayer { id: PlayerId; name: string; side: number; army?: string }
 
 export interface BoardContext {
   gameName: string;
@@ -30,7 +31,10 @@ export interface BoardContext {
   me: PlayerId | null;
   view: PlayerView;
   /** 'orders': the viewer is giving orders. 'review': read-only. */
-  mode: 'orders' | 'review';
+  /** 'orders': giving orders. 'deploy': turn 0, picking an army and placing units. 'review': read-only. */
+  mode: 'orders' | 'review' | 'deploy';
+  /** Turn 0 (deploy mode): the era's armies, the player's starting zone and the point limit. */
+  deploy?: { armies: Army[]; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment) => Promise<void> };
   /** Report sections shown in the side panel and drawn on the map. */
   reports: { title: string; events: GameEvent[] }[];
   /** A notice above the board (HTML). */
@@ -68,8 +72,26 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const player = (id: PlayerId) => ctx.players.find((p) => p.id === id);
   const colorOf = (ownerId: PlayerId) => SIDE_COLORS[player(ownerId)?.side ?? 0];
   const sideOf = (ownerId: PlayerId) => SIDE_NAMES[player(ownerId)?.side ?? 0];
-  const myUnits = (): OwnUnit[] => view.units.filter((u): u is OwnUnit => u.own);
-  const others = (): EnemyUnit[] => view.units.filter((u): u is EnemyUnit => !u.own);
+  // ---- turn 0: the army being picked and the units being placed
+  let army: Army | null = null;
+  let placements: Placement[] = [];
+  let placing: string | null = null; // unit type to place with the next click in the zone
+  const zone = new Set(ctx.deploy?.zone ?? []);
+  const spent = () => placements.reduce((n, pl) => n + (view.datasheets[pl.type]?.points ?? 0), 0);
+  const middle = `${Math.floor(view.map.cols / 2)},${Math.floor(view.map.rows / 2)}`;
+  /** Units being placed, shown like the player's own units. */
+  function pendingUnits(): OwnUnit[] {
+    const counts: Record<string, number> = {};
+    return placements.map((pl, i) => {
+      const ds = view.datasheets[pl.type];
+      counts[pl.type] = (counts[pl.type] || 0) + 1;
+      return { ...ds, id: `new${i}`, owner: ctx.me ?? '', type: pl.type, name: `${ds.name} ${counts[pl.type]}`, hex: pl.hex,
+        facing: pl.facing ?? facingToward(pl.hex, middle), strength: ds.strength, own: true as const };
+    });
+  }
+  const units = (): VisibleUnit[] => (ctx.mode === 'deploy' ? [...view.units, ...pendingUnits()] : view.units);
+  const myUnits = (): OwnUnit[] => units().filter((u): u is OwnUnit => u.own);
+  const others = (): EnemyUnit[] => units().filter((u): u is EnemyUnit => !u.own);
   const canOrder = () => ctx.mode === 'orders' && myUnits().length > 0;
   const ownUnit = (id: UnitId | null) => (id ? myUnits().find((u) => u.id === id) : undefined);
   const dsName = (type: string) => view.datasheets[type]?.name ?? type;
@@ -121,7 +143,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const budget = unit.move - pathCost(path);
     const { cols, rows } = view.map;
     // Can't enter visible enemies, or friendly units that are staying put (no stacking).
-    const blocked = new Set(view.units
+    const blocked = new Set(units()
       .filter((u) => !u.own || (u.id !== unit.id && !pathOf(u.id).length))
       .map((u) => u.hex));
     const best = new Map<HexKey, { cost: number; prev: HexKey }>([[start, { cost: 0, prev: start }]]);
@@ -160,7 +182,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         return render();
       }
     }
-    const here = view.units.find((u) => u.hex === hex);
+    if (ctx.mode === 'deploy' && placing && zone.has(hex) && !terrainAt(hex).impassable && !units().some((u) => u.hex === hex)) {
+      if (spent() + (view.datasheets[placing]?.points ?? 0) <= (ctx.deploy?.pointLimit ?? 0)) {
+        placements.push({ type: placing, hex });
+        dirty = true;
+        if (spent() + (view.datasheets[placing]?.points ?? 0) > (ctx.deploy?.pointLimit ?? 0)) placing = null; // can't afford another
+        return render();
+      }
+    }
+    const here = units().find((u) => u.hex === hex);
     selected = here && here.id !== selected ? here.id : null;
     render();
     if (selected) revealRow(selected);
@@ -181,7 +211,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   /** Select a unit: zoom the map to it and open its datasheet. */
   function focusUnit(id: UnitId): void {
     selected = id;
-    const hex = view.units.find((u) => u.id === id)?.hex;
+    const hex = units().find((u) => u.id === id)?.hex;
     if (hex && zoom < FOCUS_ZOOM) setZoom(FOCUS_ZOOM);
     render();
     if (hex) centerOn(hex, true);
@@ -333,7 +363,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         + `<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hits ? '#b3261e' : '#666'}" marker-end="url(#arrow)"/>`
         + `<circle cx="${mx}" cy="${my}" r="8" fill="${e.hits ? '#b3261e' : '#666'}"/><text x="${mx}" y="${my}">${e.hits}</text></g>`);
     }
-    for (const u of view.units) {
+    if (ctx.mode === 'deploy') {
+      for (const hex of zone) { const p = px(hex); out.push(`<polygon class="zone${placing ? ' active' : ''}" points="${hexPoints(p.x, p.y)}"/>`); }
+    }
+    for (const u of units()) {
       const p = px(u.hex);
       out.push(`<g class="unit${u.id === selected ? ' is-selected' : ''}">${facingWedge(u.hex, u.facing, colorOf(u.owner))}<circle class="body" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" fill="${colorOf(u.owner)}"/>`
         + `<text x="${p.x}" y="${p.y - 1}">${esc(u.code)}</text>`
@@ -357,6 +390,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   function describe(e: GameEvent): string {
     switch (e.type) {
+      case 'deploy': return `${player(e.player)?.name ?? 'Someone'} deployed the ${player(e.player)?.army ?? e.army}: ${plural(e.units, 'unit')}, ${e.points} points.`;
       case 'move': {
         return `${unitDesc(e.unit, e.owner, e.unitType)} moved ${label(e.path[0])} → ${label(e.path[e.path.length - 1])}.`;
       }
@@ -409,7 +443,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const on = pvAttacks().filter((e) => e.target === targetId);
     if (!on.length) return '';
     const total = on.reduce((n, e) => n + e.hits, 0);
-    const target = view.units.find((u) => u.id === targetId);
+    const target = units().find((u) => u.id === targetId);
     const after = Math.max(0, (target?.strength ?? 0) - total);
     return `${plural(on.length, 'attack')} on ${esc(unitDesc(targetId, target?.owner ?? '', target?.type))}: ${plural(total, 'hit')}, strength ${target?.strength} → ${after}${after === 0 ? ' — <b>destroyed</b>' : ''}.`;
   }
@@ -441,7 +475,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <h3 ${ctx.me ? 'style="margin-top:12px"' : ''}>${otherTitle}</h3>
       ${seen.length ? `<div class="tablewrap" data-scroll="others"><table class="unittable">
         <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th colspan="3">Player</th></tr></thead>
-        <tbody>${seen.join('')}</tbody></table></div>` : '<p class="small">No enemy units left.</p>'}
+        <tbody>${seen.join('')}</tbody></table></div>` : `<p class="small">${ctx.round === 0 ? 'No enemy units deployed yet.' : 'No enemy units left.'}</p>`}
     </div>`;
   }
 
@@ -510,6 +544,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       </table>
       ${options}
       ${history.length ? `<div class="ds-section"><h4>Recently</h4><ul class="log">${history.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ul></div>` : ''}
+      ${ctx.mode === 'deploy' && own?.id.startsWith('new') ? `<div class="ds-section"><p class="small">${ds.points} points.</p><div class="row"><button class="secondary" data-action="remove-placement">Remove from the battlefield</button></div></div>` : ''}
       <div class="row"><button class="link" data-action="center">Show on map</button></div>
     </div>`;
   }
@@ -525,19 +560,47 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     return `
       ${ctx.topCard ?? ''}
       <div class="card"><h3>${esc(ctx.gameName)}</h3>
-        <div>${finished ? 'Final round' : `Round ${ctx.round}`} of ${ctx.turnLimit}</div>
+        <div>${finished ? 'Final round' : ctx.round === 0 ? 'Turn 0: deployment' : `Round ${ctx.round} of ${ctx.turnLimit}`}</div>
         <ul class="players">${ctx.players.map((p) => `<li><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>
-          ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''} — ${view.scores[p.id] ?? 0} pts
+          ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''}${p.army ? ` <span class="small">(${esc(p.army)})</span>` : ''} — ${view.scores[p.id] ?? 0} pts
           ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : p.id === ctx.current ? '<span class="small">◀ to move</span>' : ''}</li>`).join('')}</ul>
         ${canOrder() ? `<div class="row submitrow"><button data-action="end-turn" ${busy ? 'disabled' : ''}>${busy ? 'Ending turn…' : 'End turn'}</button>
           <span class="small">${moving} with orders, ${myUnits().length - moving} holding<br>${summary}</span></div>` : ''}
       </div>
+      ${ctx.mode === 'deploy' ? renderDeploy() : ''}
       ${renderUnitTables()}
       ${canOrder() ? renderPreview() : ''}
       <div class="card"><h3>Reports</h3>
         ${reports.length ? `<label class="small"><input type="checkbox" data-action="replay" ${showReplay ? 'checked' : ''}> show on map</label>
           ${reports.map((r, i) => `<h4>${esc(r.title)}</h4><ol class="log" data-scroll="report-${i}">${r.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`).join('')}`
           : '<p class="small">Nothing to report.</p>'}</div>`;
+  }
+
+  /** Turn 0: pick an army, then choose units and place them in the starting zone. */
+  function renderDeploy(): string {
+    const d = ctx.deploy!;
+    if (!army) {
+      return `<div class="card deploy"><h3>Choose your army</h3>
+        ${d.armies.map((a) => `<div class="army"><div><b>${esc(a.name)}</b><div class="small">${esc(a.description)}</div>
+          <div class="small">${Object.values(a.units).map((u) => `${esc(u.name)} (${u.points})`).join(' · ')}</div></div>
+          <button data-action="army" data-army="${esc(a.id)}">Choose</button></div>`).join('')}</div>`;
+    }
+    const used = spent();
+    const rows = Object.entries(army.units).map(([type, u]) => {
+      const affordable = used + u.points <= d.pointLimit;
+      const n = placements.filter((pl) => pl.type === type).length;
+      return `<tr class="${placing === type ? 'sel' : ''}"><td><span class="counter mini">${esc(u.code)}</span></td><td>${esc(u.name)}${n ? ` <span class="small">×${n}</span>` : ''}</td>
+        <td>${u.move}</td><td>${u.climb}</td><td>${u.strength}</td><td><b>${u.points}</b></td>
+        <td><button class="small-btn${placing === type ? '' : ' secondary'}" data-action="place" data-type="${esc(type)}" ${affordable ? '' : 'disabled'} title="${placing === type ? 'Placing: click hexes in your zone' : 'Place this unit'}">${placing === type ? 'Placing' : 'Place'}</button></td></tr>`;
+    }).join('');
+    return `<div class="card deploy"><h3>${esc(army.name)} <button class="link" data-action="army-change">change army</button></h3>
+      <div class="points"><span class="bar"><span style="width:${Math.min(100, (used / d.pointLimit) * 100)}%"></span></span>
+        <b>${used}</b> of ${d.pointLimit} points · ${plural(placements.length, 'unit')}</div>
+      <div class="tablewrap"><table class="unittable roster">
+        <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th>Pts</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <p class="small">${placing ? `Click a highlighted hex in your starting zone to place a ${esc(view.datasheets[placing].name)}. Click a placed unit to remove it.` : 'Press Place, then click hexes in your starting zone (highlighted on the map).'}</p>
+      <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button></div></div>`;
   }
 
   /** Everything ending the turn now would do, worked out by the rules engine. */
@@ -630,6 +693,29 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const target = ev.target as Element;
     const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
     if (action === 'end-turn') return void endTurn();
+    if (action === 'army') {
+      army = ctx.deploy!.armies.find((a) => a.id === target.closest<HTMLElement>('[data-army]')!.dataset.army) ?? null;
+      placements = [];
+      placing = null;
+      return render();
+    }
+    if (action === 'army-change') { army = null; placements = []; placing = null; selected = null; return render(); }
+    if (action === 'place') {
+      const type = target.closest<HTMLElement>('[data-type]')!.dataset.type!;
+      placing = placing === type ? null : type;
+      return render();
+    }
+    if (action === 'remove-placement' && selected?.startsWith('new')) {
+      placements.splice(Number(selected.slice(3)), 1);
+      selected = null;
+      return render();
+    }
+    if (action === 'finish-deploy' && army && placements.length && !busy) {
+      busy = true;
+      dirty = false;
+      render();
+      return void ctx.deploy!.onFinish({ army: army.id, units: placements });
+    }
     if (action === 'close') { selected = null; return render(); }
     if (action === 'center' && selected) return focusUnit(selected);
     if (action === 'undo' && selected) { setPath(selected, pathOf(selected).slice(0, -1)); return render(); }

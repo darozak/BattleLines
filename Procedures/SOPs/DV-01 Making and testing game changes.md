@@ -2,7 +2,7 @@
 
 1. # <a id="1"></a>Purpose
 
-   1. <a id="1.1"></a>This standard operating procedure (SOP) sets out how developers and Claude change the game (the rules engine, the scenarios and datasheets, the link format and the web page), how they test the change, and how they keep the docs in step with it.
+   1. <a id="1.1"></a>This standard operating procedure (SOP) sets out how developers and Claude change the game (the rules engine, the eras, armies and datasheets, the link format and the web page), how they test the change, and how they keep the docs in step with it.
 
 2. # <a id="2"></a>Roles and responsibilities
 
@@ -28,7 +28,7 @@
 
    3. <a id="4.3"></a>The rules engine (`src/shared/engine.ts`) is pure and deterministic: the same position and the same orders always give the same result. There are no dice: combat outcomes are a tally of modifiers, which the page previews to the player before they end their turn. Never use `Math.random`, the clock or anything else outside the game state in the engine.
 
-   4. <a id="4.4"></a>A change that alters how a turn plays out (the rules, a scenario, a datasheet or the map generator) or how a link is written changes the games already in progress, because their links are replayed by the new code. For such a change:
+   4. <a id="4.4"></a>A change that alters how a turn plays out (the rules, an era, an army, a datasheet or the map generator) or how a link is written changes the games already in progress, because their links are replayed by the new code. For such a change:
 
       1. <a id="4.4.1"></a>say so in the issue and when reporting the change to the project lead;
 
