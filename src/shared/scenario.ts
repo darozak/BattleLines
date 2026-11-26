@@ -2,8 +2,9 @@
 // Datasheets and numbers here are PLACEHOLDERS until the real rules are written.
 import { key, neighbors, line } from './hex.js';
 import { createRng } from './rng.js';
+import type { Datasheet, GameMap, GameState, HexKey, PlayerId, TerrainType, Unit } from './types.js';
 
-export const PLACEHOLDER_DATASHEETS = {
+export const PLACEHOLDER_DATASHEETS: Record<string, Datasheet> = {
   infantry: { name: 'Infantry', code: 'I', move: 4, sight: 5, strength: 4 },
   scout:    { name: 'Scout',    code: 'S', move: 6, sight: 7, strength: 2 },
   heavy:    { name: 'Heavy',    code: 'H', move: 3, sight: 4, strength: 6 },
@@ -16,7 +17,7 @@ const COLS = 16;
 const ROWS = 12;
 
 // Starting hexes for each side's four units: infantry, infantry, scout, heavy.
-const DEPLOYMENTS = [
+const DEPLOYMENTS: HexKey[][] = [
   ['1,4', '1,7', '2,5', '0,6'],    // west
   ['14,4', '14,7', '13,6', '15,5'], // east
   ['6,1', '9,1', '7,2', '8,0'],    // north
@@ -24,7 +25,16 @@ const DEPLOYMENTS = [
 ];
 const ROSTER = ['infantry', 'infantry', 'scout', 'heavy'];
 
-export const SCENARIOS = {
+export interface Scenario {
+  id: string;
+  name: string;
+  description: string;
+  minPlayers: number;
+  maxPlayers: number;
+  turnLimit: number;
+}
+
+export const SCENARIOS: Record<string, Scenario> = {
   crossroads: {
     id: 'crossroads',
     name: 'Skirmish at the Crossroads',
@@ -35,14 +45,14 @@ export const SCENARIOS = {
   },
 };
 
-export function generateMap(seed, protectedHexes) {
+export function generateMap(seed: number, protectedHexes: HexKey[]): GameMap {
   const rng = createRng(seed);
-  const terrain = new Array(COLS * ROWS).fill('open');
-  const set = (hex, t) => {
+  const terrain: TerrainType[] = new Array(COLS * ROWS).fill('open');
+  const set = (hex: HexKey, t: TerrainType) => {
     const [c, r] = hex.split(',').map(Number);
     terrain[r * COLS + c] = t;
   };
-  const grow = (type, seeds, size) => {
+  const grow = (type: TerrainType, seeds: number, size: number) => {
     for (let i = 0; i < seeds; i++) {
       let frontier = [key(rng.int(COLS), rng.int(ROWS))];
       for (let j = 0; j < size && frontier.length; j++) {
@@ -63,16 +73,17 @@ export function generateMap(seed, protectedHexes) {
   return { cols: COLS, rows: ROWS, terrain };
 }
 
-// players: [{ id, side, name }] ordered by side.
-export function createInitialState(scenarioId, players, seed) {
+export interface ScenarioPlayer { id: PlayerId; side: number }
+
+export function createInitialState(scenarioId: string, players: ScenarioPlayer[], seed: number): GameState {
   const scenario = SCENARIOS[scenarioId];
   const objectives = ['5,4', '10,7', '7,6'];
   const deploy = players.flatMap((p) => DEPLOYMENTS[p.side]);
   const map = generateMap(seed, [...objectives, ...deploy]);
-  const units = [];
+  const units: Unit[] = [];
   let n = 0;
   for (const p of players) {
-    const counts = {};
+    const counts: Record<string, number> = {};
     DEPLOYMENTS[p.side].forEach((hex, i) => {
       const type = ROSTER[i];
       const ds = PLACEHOLDER_DATASHEETS[type];
@@ -87,7 +98,7 @@ export function createInitialState(scenarioId, players, seed) {
       });
     });
   }
-  const state = {
+  const state: GameState = {
     scenario: scenarioId,
     turn: 1,
     turnLimit: scenario.turnLimit,

@@ -1,6 +1,13 @@
 // Small seeded PRNG (mulberry32). Storing the seed with each turn makes every
 // resolution reproducible for replays, dispute checks and bug reports.
-export function createRng(seed) {
+export interface Rng {
+  next(): number;
+  int(n: number): number;
+  d6(): number;
+  pick<T>(arr: T[]): T;
+}
+
+export function createRng(seed: number): Rng {
   let a = seed >>> 0;
   const next = () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -11,12 +18,12 @@ export function createRng(seed) {
   };
   return {
     next,
-    int: (n) => Math.floor(next() * n),
+    int: (n: number) => Math.floor(next() * n),
     d6: () => 1 + Math.floor(next() * 6),
-    pick: (arr) => arr[Math.floor(next() * arr.length)],
+    pick: <T>(arr: T[]): T => arr[Math.floor(next() * arr.length)],
   };
 }
 
-export function randomSeed() {
+export function randomSeed(): number {
   return Math.floor(Math.random() * 2 ** 31);
 }

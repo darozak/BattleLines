@@ -40,11 +40,14 @@ exercise the game flow, and will be replaced by `rules.md` once it is written.
 ### Running it
 
 Requires Node.js 22.5 or newer. No database server is needed (it uses SQLite).
+The code is TypeScript and is compiled to `dist/`.
 
 ```bash
 npm install
-npm run dev     # http://localhost:3000, with dev tools at /dev
-npm test
+npm run dev        # build, then rebuild and restart on changes: http://localhost:3000 (dev tools at /dev)
+npm test           # build, then run all tests
+npm run typecheck  # type-check without building
+npm run build && npm start   # production-style run
 ```
 
 With `npm run dev`, emails are not sent. They are saved to an outbox at
@@ -66,9 +69,14 @@ can play all sides of a game from one browser without waiting a week.
 
 ### Code layout
 
-- `src/engine/`: the rules engine (pure functions, no I/O). `engine.js` resolves a turn,
-  `scenario.js` holds the placeholder map, units and datasheets, `hex.js` the hex maths.
-- `src/games.js`: invitations, turn lifecycle, deadlines, reminders and emails.
-- `src/emails.js`: email templates. `src/mailer.js`: SMTP / outbox delivery.
-- `src/app.js`, `src/views.js`: web routes and pages. `public/game.js`: the interactive map.
-- `test/`: engine tests and a full end-to-end game played over HTTP.
+- `src/shared/`: code used by both the server and the browser.
+  - `types.ts`: the data shapes: game state, orders, events, and what each player is allowed to see.
+  - `engine.ts`: the rules engine (pure functions, no I/O). It resolves a turn and filters what each player sees.
+  - `scenario.ts`: the placeholder map, units and datasheets. `hex.ts`: hex maths. `terrain.ts`: the terrain table.
+- `src/server/`: the website and email system.
+  - `games.ts`: invitations, the turn lifecycle, deadlines, reminders and emails.
+  - `emails.ts`: email templates. `mailer.ts`: SMTP or outbox delivery. `db.ts`: the SQLite schema and row types.
+  - `app.ts`, `views.ts`: web routes and pages. `server.ts`: startup and the deadline scheduler.
+- `src/client/game.ts`: the interactive map page.
+- `public/`: static files (CSS).
+- `test/`: engine tests, and a full end-to-end game played over HTTP.

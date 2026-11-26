@@ -1,6 +1,70 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { GameStatus } from '../shared/types.js';
+
+export type Db = DatabaseSync;
+
+// Row shapes as stored in SQLite. Times are milliseconds since the epoch.
+export interface GameRow {
+  id: string;
+  name: string;
+  scenario: string;
+  status: GameStatus;
+  turn: number;
+  turn_length_sec: number;
+  deadline: number | null;
+  reminder_sent: number;
+  state_json: string | null;
+  created_at: number;
+}
+export interface PlayerRow {
+  id: string;
+  game_id: string;
+  email: string;
+  name: string | null;
+  token: string;
+  is_host: number;
+  invite_status: 'pending' | 'accepted' | 'declined';
+  responded_at: number | null;
+  side: number | null;
+  missed_turns: number;
+  created_at: number;
+}
+export interface OrderRow {
+  game_id: string;
+  turn: number;
+  player_id: string;
+  orders_json: string;
+  submitted_at: number;
+}
+export interface TurnResultRow {
+  game_id: string;
+  turn: number;
+  seed: number;
+  state_before_json: string;
+  orders_json: string;
+  events_json: string;
+  logs_json: string;
+  resolved_at: number;
+}
+export interface EmailRow {
+  id: number;
+  game_id: string | null;
+  to_addr: string;
+  subject: string;
+  text: string;
+  html: string;
+  status: 'outbox' | 'queued' | 'sent' | 'failed';
+  error: string | null;
+  created_at: number;
+}
+
+// node:sqlite returns loosely typed rows; these helpers give them their row type.
+export const getRow = <T>(db: Db, sql: string, ...params: (string | number | null)[]): T | undefined =>
+  db.prepare(sql).get(...params) as T | undefined;
+export const allRows = <T>(db: Db, sql: string, ...params: (string | number | null)[]): T[] =>
+  db.prepare(sql).all(...params) as unknown as T[];
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS games (
@@ -61,7 +125,7 @@ CREATE TABLE IF NOT EXISTS emails (
 );
 `;
 
-export function openDb(file = ':memory:') {
+export function openDb(file = ':memory:'): Db {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -69,7 +133,7 @@ export function openDb(file = ':memory:') {
   return db;
 }
 
-export function transaction(db, fn) {
+export function transaction<T>(db: Db, fn: () => T): T {
   db.exec('BEGIN');
   try {
     const out = fn();

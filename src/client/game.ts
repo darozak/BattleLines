@@ -1,35 +1,40 @@
 // Player map: shows own units, what they can see, last turn's events, and lets the
 // player plot movement orders. All hidden-information filtering is done by the server.
-import { parse, neighbors, toPixel, label } from '/shared/hex.js';
-import { TERRAIN } from '/shared/terrain.js';
+import { parse, neighbors, toPixel, label } from '../shared/hex.js';
+import { TERRAIN } from '../shared/terrain.js';
+import type { GameEvent, HexKey, PlayerData, PlayerId, Terrain, UnitId, VisibleUnit } from '../shared/types.js';
 
-const app = document.getElementById('app');
-const token = app.dataset.token;
-const SIDE_COLORS = JSON.parse(app.dataset.colors);
-const SIDE_NAMES = JSON.parse(app.dataset.sides);
+type OwnUnit = Extract<VisibleUnit, { own: true }>;
+
+const app = document.getElementById('app')!;
+const token = app.dataset.token!;
+const SIDE_COLORS: string[] = JSON.parse(app.dataset.colors!);
+const SIDE_NAMES: string[] = JSON.parse(app.dataset.sides!);
 const SIZE = 24;
 const MARGIN = 14;
 
-let data = null;
-let orders = {};          // unitId -> [hex, ...]
-let selected = null;      // unitId
+let data: PlayerData;
+let loaded = false;
+let orders: Record<UnitId, HexKey[]> = {};
+let selected: UnitId | null = null;
 let showReplay = true;
 let dirty = false;
-let flash = null;
+let flash: { kind: 'ok' | 'warn'; text: string } | null = null;
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const terrainAt = (hex) => { const { col, row } = parse(hex); return TERRAIN[data.view.map.terrain[row * data.view.map.cols + col]]; };
-const player = (id) => data.players.find((p) => p.id === id);
-const colorOf = (ownerId) => SIDE_COLORS[player(ownerId)?.side ?? 0];
-const sideOf = (ownerId) => SIDE_NAMES[player(ownerId)?.side ?? 0];
-const myUnits = () => data.view.units.filter((u) => u.own);
+const esc = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
+const terrainAt = (hex: HexKey): Terrain => { const { col, row } = parse(hex); return TERRAIN[data.view.map.terrain[row * data.view.map.cols + col]]; };
+const player = (id: PlayerId) => data.players.find((p) => p.id === id);
+const colorOf = (ownerId: PlayerId) => SIDE_COLORS[player(ownerId)?.side ?? 0];
+const sideOf = (ownerId: PlayerId) => SIDE_NAMES[player(ownerId)?.side ?? 0];
+const myUnits = (): OwnUnit[] => data.view.units.filter((u): u is OwnUnit => u.own);
 const canOrder = () => data.game.status === 'active' && myUnits().length > 0;
 
 async function load() {
   const res = await fetch(`/api/p/${token}/view`);
   if (!res.ok) { app.innerHTML = `<p class="error">${esc((await res.json()).error)}</p>`; return; }
-  const prevTurn = data?.game.turn;
+  const prevTurn = loaded ? data.game.turn : undefined;
   data = await res.json();
+  loaded = true;
   if (prevTurn && prevTurn !== data.game.turn) flash = { kind: 'ok', text: `Turn ${prevTurn} has been resolved.` };
   orders = Object.fromEntries(Object.entries(data.myOrders || {}).map(([id, o]) => [id, [...o.path]]));
   dirty = false;
@@ -38,7 +43,7 @@ async function load() {
 }
 
 // Cheapest paths from the end of a unit's current planned path, within its remaining movement.
-function reachable(unit) {
+function reachable(unit: OwnUnit): Map<HexKey, { cost: number; prev: HexKey }> {
   const path = orders[unit.id] || [];
   const start = path.length ? path[path.length - 1] : unit.hex;
   const spent = path.reduce((s, h) => s + terrainAt(h).cost, 0);
@@ -48,24 +53,24 @@ function reachable(unit) {
   const blocked = new Set(data.view.units
     .filter((u) => !u.own || (u.id !== unit.id && !(orders[u.id] || []).length))
     .map((u) => u.hex));
-  const best = new Map([[start, { cost: 0, prev: null }]]);
+  const best = new Map<HexKey, { cost: number; prev: HexKey }>([[start, { cost: 0, prev: start }]]);
   const queue = [start];
   while (queue.length) {
-    queue.sort((a, b) => best.get(a).cost - best.get(b).cost);
-    const h = queue.shift();
+    queue.sort((a, b) => best.get(a)!.cost - best.get(b)!.cost);
+    const h = queue.shift()!;
     for (const n of neighbors(h, cols, rows)) {
       const t = terrainAt(n);
       if (t.impassable || blocked.has(n)) continue;
-      const c = best.get(h).cost + t.cost;
+      const c = best.get(h)!.cost + t.cost;
       if (c > budget) continue;
-      if (!best.has(n) || c < best.get(n).cost) { best.set(n, { cost: c, prev: h }); queue.push(n); }
+      if (!best.has(n) || c < best.get(n)!.cost) { best.set(n, { cost: c, prev: h }); queue.push(n); }
     }
   }
   best.delete(start);
   return best;
 }
 
-function onHexClick(hex) {
+function onHexClick(hex: HexKey): void {
   if (!canOrder()) return;
   const unit = selected && myUnits().find((u) => u.id === selected);
   if (unit) {
@@ -79,7 +84,7 @@ function onHexClick(hex) {
     const reach = reachable(unit);
     if (reach.has(hex)) {
       const steps = [];
-      for (let h = hex; reach.has(h); h = reach.get(h).prev) steps.unshift(h);
+      for (let h = hex; reach.has(h); h = reach.get(h)!.prev) steps.unshift(h);
       orders[unit.id] = [...path, ...steps];
       dirty = true;
       return render();
@@ -90,8 +95,8 @@ function onHexClick(hex) {
   render();
 }
 
-function hexPoints(cx, cy) {
-  const pts = [];
+function hexPoints(cx: number, cy: number): string {
+  const pts: string[] = [];
   for (let i = 0; i < 6; i++) {
     const a = (Math.PI / 180) * (60 * i - 30);
     pts.push(`${(cx + SIZE * Math.cos(a)).toFixed(1)},${(cy + SIZE * Math.sin(a)).toFixed(1)}`);
@@ -99,15 +104,15 @@ function hexPoints(cx, cy) {
   return pts.join(' ');
 }
 
-const px = (hex) => { const p = toPixel(hex, SIZE); return { x: p.x + MARGIN + SIZE, y: p.y + MARGIN + SIZE }; };
-const polyline = (hexes) => hexes.map((h) => { const p = px(h); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(' ');
+const px = (hex: HexKey) => { const p = toPixel(hex, SIZE); return { x: p.x + MARGIN + SIZE, y: p.y + MARGIN + SIZE }; };
+const polyline = (hexes: HexKey[]) => hexes.map((h) => { const p = px(h); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(' ');
 
-function renderMap() {
+function renderMap(): string {
   const { cols, rows } = data.view.map;
   const w = Math.sqrt(3) * SIZE * (cols + 0.5) + MARGIN * 2;
   const h = 1.5 * SIZE * (rows - 1) + 2 * SIZE + MARGIN * 2;
   const visible = new Set(data.view.visibleHexes);
-  const out = [];
+  const out: string[] = [];
   out.push(`<svg viewBox="0 0 ${w.toFixed(0)} ${h.toFixed(0)}" xmlns="http://www.w3.org/2000/svg">`);
   out.push(`<defs><marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`);
   for (let r = 0; r < rows; r++) {
@@ -128,10 +133,12 @@ function renderMap() {
     for (const hex of reachable(sel).keys()) { const p = px(hex); out.push(`<polygon class="reach" points="${hexPoints(p.x, p.y)}"/>`); }
   }
   if (showReplay && data.lastTurn) {
-    for (const e of data.lastTurn.events.filter((x) => x.type === 'move' && x.path.length > 1)) {
+    for (const e of data.lastTurn.events) {
+      if (e.type !== 'move' || e.path.length < 2) continue;
       out.push(`<polyline class="path" points="${polyline(e.path)}" stroke="${colorOf(e.owner)}" opacity=".45" marker-end="url(#arrow)"/>`);
     }
-    for (const e of data.lastTurn.events.filter((x) => x.type === 'attack' && x.attackerHex)) {
+    for (const e of data.lastTurn.events) {
+      if (e.type !== 'attack' || !e.attackerHex) continue;
       out.push(`<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hit ? '#d33' : '#555'}" stroke-dasharray="2 3" marker-end="url(#arrow)"/>`);
     }
   }
@@ -155,14 +162,14 @@ function renderMap() {
   return out.join('');
 }
 
-function unitDesc(id, owner, type) {
+function unitDesc(id: UnitId | null, owner: PlayerId, type?: string | null): string {
   const own = myUnits().find((u) => u.id === id);
   if (own) return own.name;
-  const ds = data.view.datasheets[type];
+  const ds = type ? data.view.datasheets[type] : undefined;
   return owner === data.me.id ? `your ${ds?.name ?? 'unit'}` : `${sideOf(owner)} ${ds?.name ?? 'unit'}`;
 }
 
-function describe(e) {
+function describe(e: GameEvent): string {
   switch (e.type) {
     case 'move': {
       const who = unitDesc(e.unit, e.owner, e.unitType);
@@ -180,11 +187,11 @@ function describe(e) {
     case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
     case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} for holding ${label(e.hex)}.`;
     case 'gameover': return `Game over. ${e.reason}`;
-    default: return e.type;
+    default: return (e as { type: string }).type;
   }
 }
 
-function timeLeft(ms) {
+function timeLeft(ms: number): string {
   const d = ms - Date.now();
   if (d <= 0) return 'deadline passed, resolving shortly';
   const h = Math.floor(d / 3600000);
@@ -192,7 +199,7 @@ function timeLeft(ms) {
   return h >= 48 ? `${Math.floor(h / 24)} days left` : h ? `${h}h ${m}m left` : `${m}m left`;
 }
 
-function render() {
+function render(): void {
   const g = data.game;
   const finished = g.status === 'finished';
   const scores = data.view.scores;
@@ -241,28 +248,28 @@ ${banner}
   </div>
 </div>`;
   flash = null;
-  app.querySelector('svg').addEventListener('click', (ev) => {
-    const hex = ev.target.closest('[data-hex]')?.dataset.hex;
+  app.querySelector('svg')!.addEventListener('click', (ev) => {
+    const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
     if (hex) onHexClick(hex);
   });
-  app.querySelector('#replay')?.addEventListener('change', (ev) => { showReplay = ev.target.checked; render(); });
-  app.querySelector('#clear')?.addEventListener('click', () => { orders[selected] = []; dirty = true; render(); });
+  app.querySelector('#replay')?.addEventListener('change', (ev) => { showReplay = (ev.target as HTMLInputElement).checked; render(); });
+  app.querySelector('#clear')?.addEventListener('click', () => { if (selected) orders[selected] = []; dirty = true; render(); });
   app.querySelector('#submit')?.addEventListener('click', submit);
 }
 
-async function submit() {
+async function submit(): Promise<void> {
   const body = { orders: Object.fromEntries(Object.entries(orders).filter(([, p]) => p.length).map(([id, path]) => [id, { path }])) };
   const res = await fetch(`/api/p/${token}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const out = await res.json();
   if (!res.ok) { flash = { kind: 'warn', text: out.error }; return render(); }
   data.submittedAt = out.submittedAt;
-  data.players.find((p) => p.id === data.me.id).submitted = true;
+  data.players.find((p) => p.id === data.me.id)!.submitted = true;
   dirty = false;
   render();
   // If everyone has now submitted, the turn resolves straight away; pick that up.
   setTimeout(async () => {
     const res2 = await fetch(`/api/p/${token}/view`);
-    if (res2.ok && (await res2.json()).game.turn !== data.game.turn) load();
+    if (res2.ok && ((await res2.json()) as PlayerData).game.turn !== data.game.turn) load();
   }, 1200);
 }
 

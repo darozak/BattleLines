@@ -9,6 +9,7 @@ const devTools = process.env.DEV_TOOLS === '1';
 const now = () => Date.now();
 
 const db = openDb(process.env.DATABASE_FILE || 'data/battlelines.db');
+// Run with: npm run build && npm start
 const mailer = createMailer({ db, now, smtpUrl: process.env.SMTP_URL, from: process.env.MAIL_FROM });
 const service = createGameService({ db, mailer, now, baseUrl });
 const app = createApp({ db, service, devTools });

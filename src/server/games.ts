@@ -1,12 +1,14 @@
 // Game service: invitations, turn lifecycle, deadlines and the emails that drive them.
 import { randomBytes, randomUUID } from 'node:crypto';
-import { transaction } from './db.js';
+import { allRows, getRow, transaction, type Db, type GameRow, type OrderRow, type PlayerRow, type TurnResultRow } from './db.js';
+import type { Mailer } from './mailer.js';
 import * as mail from './emails.js';
-import { SCENARIOS, SIDE_NAMES, createInitialState } from './engine/scenario.js';
-import { resolveTurn, initialSpotting, validateOrders } from './engine/engine.js';
-import { randomSeed } from './engine/rng.js';
+import { SCENARIOS, SIDE_NAMES, createInitialState } from '../shared/scenario.js';
+import { resolveTurn, initialSpotting, validateOrders } from '../shared/engine.js';
+import { randomSeed } from '../shared/rng.js';
+import type { GameEvent, GameState, PlayerData, PlayerId, PlayerOrders, PlayerView } from '../shared/types.js';
 
-export const TURN_LENGTHS = {
+export const TURN_LENGTHS: Record<string, number> = {
   '7d': 7 * 86400,
   '3d': 3 * 86400,
   '1d': 86400,
@@ -17,33 +19,57 @@ export const TURN_LENGTHS = {
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 const newToken = () => randomBytes(24).toString('base64url');
 
+/** An error caused by the user's input or the game's state; its message is safe to show them. */
 export class GameError extends Error {}
 
-export function createGameService({ db, mailer, now = () => Date.now(), baseUrl }) {
-  const link = (player) => `${baseUrl}/p/${player.token}`;
-  const q = {
-    game: db.prepare('SELECT * FROM games WHERE id = ?'),
-    players: db.prepare('SELECT * FROM players WHERE game_id = ? ORDER BY is_host DESC, created_at, rowid'),
-    playerByToken: db.prepare('SELECT * FROM players WHERE token = ?'),
-    orders: db.prepare('SELECT * FROM orders WHERE game_id = ? AND turn = ?'),
-    order: db.prepare('SELECT * FROM orders WHERE game_id = ? AND turn = ? AND player_id = ?'),
-    result: db.prepare('SELECT * FROM turn_results WHERE game_id = ? AND turn = ?'),
-    activeGames: db.prepare("SELECT * FROM games WHERE status = 'active'"),
+export interface CreateGameInput {
+  hostName?: string;
+  hostEmail?: string;
+  gameName?: string;
+  turnLength?: string;
+  inviteEmails?: string;
+  scenario?: string;
+}
+
+export interface PlayerContext {
+  player: PlayerRow;
+  game: GameRow;
+}
+
+export interface GameServiceOptions {
+  db: Db;
+  mailer: Mailer;
+  now?: () => number;
+  baseUrl: string;
+}
+
+export type GameService = ReturnType<typeof createGameService>;
+
+export function createGameService({ db, mailer, now = () => Date.now(), baseUrl }: GameServiceOptions) {
+  const link = (player: { token: string }) => `${baseUrl}/p/${player.token}`;
+  const displayName = (p: PlayerRow) => p.name || p.email;
+
+  const getGame = (id: string) => getRow<GameRow>(db, 'SELECT * FROM games WHERE id = ?', id);
+  const getPlayers = (gameId: string) =>
+    allRows<PlayerRow>(db, 'SELECT * FROM players WHERE game_id = ? ORDER BY is_host DESC, created_at, rowid', gameId);
+  const acceptedPlayers = (gameId: string) => getPlayers(gameId).filter((p) => p.invite_status === 'accepted');
+  const getOrders = (gameId: string, turn: number) =>
+    allRows<OrderRow>(db, 'SELECT * FROM orders WHERE game_id = ? AND turn = ?', gameId, turn);
+  const getState = (game: GameRow): GameState => {
+    if (!game.state_json) throw new Error(`Game ${game.id} has no state`);
+    return JSON.parse(game.state_json) as GameState;
   };
+  const reminderLeadMs = (game: GameRow) => Math.min(24 * 3600, game.turn_length_sec / 4) * 1000;
 
-  const getGame = (id) => q.game.get(id);
-  const getPlayers = (gameId) => q.players.all(gameId);
-  const getState = (game) => (game.state_json ? JSON.parse(game.state_json) : null);
-  const reminderLeadMs = (game) => Math.min(24 * 3600, game.turn_length_sec / 4) * 1000;
-
-  async function createGame({ hostName, hostEmail, gameName, turnLength = '7d', inviteEmails, scenario = 'crossroads' }) {
+  async function createGame(input: CreateGameInput): Promise<{ game: GameRow; host: PlayerRow }> {
+    const scenario = input.scenario || 'crossroads';
     const sc = SCENARIOS[scenario];
     if (!sc) throw new GameError('Unknown scenario.');
-    hostEmail = String(hostEmail || '').trim().toLowerCase();
+    const hostEmail = String(input.hostEmail || '').trim().toLowerCase();
     if (!EMAIL_RE.test(hostEmail)) throw new GameError('Please enter a valid email address for yourself.');
-    const turnSec = TURN_LENGTHS[turnLength];
+    const turnSec = TURN_LENGTHS[input.turnLength || '7d'];
     if (!turnSec) throw new GameError('Unknown turn length.');
-    const invitees = [...new Set(String(inviteEmails || '').split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))]
+    const invitees = [...new Set(String(input.inviteEmails || '').split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))]
       .filter((e) => e !== hostEmail);
     const bad = invitees.filter((e) => !EMAIL_RE.test(e));
     if (bad.length) throw new GameError(`These don't look like email addresses: ${bad.join(', ')}`);
@@ -51,31 +77,33 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
     if (invitees.length > sc.maxPlayers - 1) throw new GameError(`This scenario supports at most ${sc.maxPlayers} players including you.`);
 
     const t = now();
-    const game = { id: randomUUID(), name: String(gameName || '').trim() || 'Untitled battle', scenario, turn_length_sec: turnSec };
-    const host = { id: randomUUID(), email: hostEmail, name: String(hostName || '').trim() || null, token: newToken() };
-    const guests = invitees.map((email) => ({ id: randomUUID(), email, name: null, token: newToken() }));
+    const gameId = randomUUID();
+    const gameName = String(input.gameName || '').trim() || 'Untitled battle';
+    const hostId = randomUUID();
+    const guests = invitees.map((email) => ({ id: randomUUID(), email, token: newToken() }));
     transaction(db, () => {
       db.prepare("INSERT INTO games (id, name, scenario, status, turn_length_sec, created_at) VALUES (?, ?, ?, 'inviting', ?, ?)")
-        .run(game.id, game.name, scenario, turnSec, t);
+        .run(gameId, gameName, scenario, turnSec, t);
       const ins = db.prepare('INSERT INTO players (id, game_id, email, name, token, is_host, invite_status, responded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      ins.run(host.id, game.id, host.email, host.name, host.token, 1, 'accepted', t, t);
-      guests.forEach((g, i) => ins.run(g.id, game.id, g.email, null, g.token, 0, 'pending', null, t + i + 1));
+      ins.run(hostId, gameId, hostEmail, String(input.hostName || '').trim() || null, newToken(), 1, 'accepted', t, t);
+      guests.forEach((g, i) => ins.run(g.id, gameId, g.email, null, g.token, 0, 'pending', null, t + i + 1));
     });
-    const g = getGame(game.id);
+    const game = getGame(gameId)!;
+    const host = getPlayers(gameId).find((p) => p.id === hostId)!;
     for (const guest of guests) {
-      await mailer.send({ gameId: g.id, to: guest.email, ...mail.inviteEmail({ game: g, host, link: link(guest), scenario: sc }) });
+      await mailer.send({ gameId, to: guest.email, ...mail.inviteEmail({ game, host, link: link(guest), scenario: sc }) });
     }
-    await mailer.send({ gameId: g.id, to: host.email, ...mail.hostCreatedEmail({ game: g, link: link(host), invitees }) });
-    return { game: g, host };
+    await mailer.send({ gameId, to: host.email, ...mail.hostCreatedEmail({ game, link: link(host), invitees }) });
+    return { game, host };
   }
 
-  function lookup(token) {
-    const player = q.playerByToken.get(String(token));
+  function lookup(token: string): PlayerContext | null {
+    const player = getRow<PlayerRow>(db, 'SELECT * FROM players WHERE token = ?', String(token));
     if (!player) return null;
-    return { player, game: getGame(player.game_id) };
+    return { player, game: getGame(player.game_id)! };
   }
 
-  async function respond(token, accept, name) {
+  async function respond(token: string, accept: boolean, name?: string): Promise<PlayerContext | null> {
     const ctx = lookup(token);
     if (!ctx) throw new GameError('Unknown link.');
     const { player, game } = ctx;
@@ -91,18 +119,19 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
     return lookup(token);
   }
 
-  async function startGame(gameId, byToken) {
+  async function startGame(gameId: string, byToken?: string): Promise<GameRow> {
     const game = getGame(gameId);
+    if (!game) throw new GameError('Unknown game.');
     if (byToken) {
       const ctx = lookup(byToken);
       if (!ctx || ctx.game.id !== gameId || !ctx.player.is_host) throw new GameError('Only the host can start the game.');
     }
     if (game.status !== 'inviting') throw new GameError('The game has already started.');
-    const accepted = getPlayers(gameId).filter((p) => p.invite_status === 'accepted');
+    const accepted = acceptedPlayers(gameId);
     if (accepted.length < SCENARIOS[game.scenario].minPlayers) throw new GameError('Not enough players have accepted yet.');
 
     const seed = randomSeed();
-    const players = accepted.map((p, side) => ({ id: p.id, side, name: p.name }));
+    const players = accepted.map((p, side) => ({ id: p.id, side }));
     const state = initialSpotting(createInitialState(game.scenario, players, seed));
     const deadline = now() + game.turn_length_sec * 1000;
     transaction(db, () => {
@@ -111,14 +140,14 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
       db.prepare("UPDATE games SET status = 'active', turn = 1, deadline = ?, reminder_sent = 0, state_json = ? WHERE id = ?")
         .run(deadline, JSON.stringify(state), gameId);
     });
-    const g = getGame(gameId);
-    for (const p of getPlayers(gameId).filter((x) => x.invite_status === 'accepted')) {
+    const g = getGame(gameId)!;
+    for (const p of acceptedPlayers(gameId)) {
       await mailer.send({ gameId, to: p.email, ...mail.turnEmail({ game: g, player: p, turn: 1, link: link(p), deadline, firstTurn: true }) });
     }
     return g;
   }
 
-  async function cancelGame(token) {
+  async function cancelGame(token: string): Promise<void> {
     const ctx = lookup(token);
     if (!ctx || !ctx.player.is_host) throw new GameError('Only the host can cancel the game.');
     if (!['inviting', 'active'].includes(ctx.game.status)) throw new GameError('The game is already over.');
@@ -128,30 +157,30 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
     }
   }
 
-  function submitOrders(token, orders) {
+  function submitOrders(token: string, orders: unknown): { turn: number; submittedAt: number; orders: PlayerOrders } {
     const ctx = lookup(token);
     if (!ctx) throw new GameError('Unknown link.');
     const { player, game } = ctx;
     if (game.status !== 'active') throw new GameError('This game is not accepting orders.');
-    const state = getState(game);
-    const v = validateOrders(state, player.id, orders);
+    const v = validateOrders(getState(game), player.id, orders);
     if (!v.ok) throw new GameError(v.errors.join('; '));
+    const t = now();
     db.prepare(`INSERT INTO orders (game_id, turn, player_id, orders_json, submitted_at) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT (game_id, turn, player_id) DO UPDATE SET orders_json = excluded.orders_json, submitted_at = excluded.submitted_at`)
-      .run(game.id, game.turn, player.id, JSON.stringify(v.orders), now());
-    return { turn: game.turn, submittedAt: now(), orders: v.orders };
+      .run(game.id, game.turn, player.id, JSON.stringify(v.orders), t);
+    return { turn: game.turn, submittedAt: t, orders: v.orders };
   }
 
-  async function resolveGame(gameId, expectedTurn) {
+  async function resolveGame(gameId: string, expectedTurn?: number): Promise<GameRow | null> {
     const game = getGame(gameId);
     if (!game || game.status !== 'active') return null;
     if (expectedTurn !== undefined && game.turn !== expectedTurn) return null; // already resolved elsewhere
     const state = getState(game);
-    const orderRows = q.orders.all(gameId, game.turn);
-    const ordersByPlayer = Object.fromEntries(orderRows.map((r) => [r.player_id, JSON.parse(r.orders_json)]));
+    const ordersByPlayer: Record<PlayerId, PlayerOrders> = Object.fromEntries(
+      getOrders(gameId, game.turn).map((r) => [r.player_id, JSON.parse(r.orders_json) as PlayerOrders]));
     const seed = randomSeed();
     const { state: next, events, logs } = resolveTurn(state, ordersByPlayer, seed);
-    const players = getPlayers(gameId).filter((p) => p.invite_status === 'accepted');
+    const players = acceptedPlayers(gameId);
     const deadline = now() + game.turn_length_sec * 1000;
 
     transaction(db, () => {
@@ -169,11 +198,11 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
       }
     });
 
-    const g = getGame(gameId);
-    if (next.finished) {
-      const nameOf = (id) => { const p = players.find((x) => x.id === id); return p.name || p.email; };
+    const g = getGame(gameId)!;
+    if (next.finished && next.result) {
+      const nameOf = (id: PlayerId) => displayName(players.find((x) => x.id === id)!);
       const winners = next.result.winners.map(nameOf);
-      const scores = players.map((p) => `${p.name || p.email} (${SIDE_NAMES[p.side]}): ${next.scores[p.id]}`).join(', ');
+      const scores = players.map((p) => `${displayName(p)} (${SIDE_NAMES[p.side ?? 0]}): ${next.scores[p.id]}`).join(', ');
       const resultText = `${next.result.reason} ${winners.length ? `Victory: ${winners.join(' and ')}.` : 'No winner.'} Final scores: ${scores}.`;
       for (const p of players) await mailer.send({ gameId, to: p.email, ...mail.finalEmail({ game: g, link: link(p), resultText }) });
     } else {
@@ -184,17 +213,19 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
     return g;
   }
 
-  // Called periodically by the scheduler. Resolves turns whose deadline has passed (or
-  // where every player has submitted) and sends reminders to players running out of time.
-  async function tick() {
+  /**
+   * Called periodically by the scheduler. Resolves turns whose deadline has passed (or
+   * where every player has submitted) and sends reminders to players running out of time.
+   */
+  async function tick(): Promise<void> {
     const t = now();
-    for (const { id } of q.activeGames.all()) {
-      const game = getGame(id); // re-read: an earlier await may have resolved it already
-      if (game.status !== 'active') continue;
+    for (const { id } of allRows<{ id: string }>(db, "SELECT id FROM games WHERE status = 'active'")) {
+      const game = getGame(id)!; // re-read: an earlier await may have resolved it already
+      if (game.status !== 'active' || game.deadline === null) continue;
       const state = getState(game);
       const aliveOwners = new Set(state.units.filter((u) => u.strength > 0).map((u) => u.owner));
-      const needed = getPlayers(game.id).filter((p) => p.invite_status === 'accepted' && aliveOwners.has(p.id));
-      const submitted = new Set(q.orders.all(game.id, game.turn).map((r) => r.player_id));
+      const needed = acceptedPlayers(game.id).filter((p) => aliveOwners.has(p.id));
+      const submitted = new Set(getOrders(game.id, game.turn).map((r) => r.player_id));
       if (t >= game.deadline || needed.every((p) => submitted.has(p.id))) {
         await resolveGame(game.id, game.turn);
       } else if (!game.reminder_sent && t >= game.deadline - reminderLeadMs(game)) {
@@ -206,25 +237,30 @@ export function createGameService({ db, mailer, now = () => Date.now(), baseUrl 
     }
   }
 
-  // Everything one player is allowed to see, for the map page.
-  function playerData(token, viewFn) {
+  /** Everything one player is allowed to see, for the map page. */
+  function playerData(token: string, viewFn: (state: GameState, playerId: PlayerId) => PlayerView): PlayerData | null {
     const ctx = lookup(token);
     if (!ctx) return null;
     const { player, game } = ctx;
-    const players = getPlayers(game.id).filter((p) => p.invite_status === 'accepted');
     const state = getState(game);
-    const submitted = new Set(q.orders.all(game.id, game.turn).map((r) => r.player_id));
-    const mine = q.order.get(game.id, game.turn, player.id);
+    const submitted = new Set(getOrders(game.id, game.turn).map((r) => r.player_id));
+    const mine = getRow<OrderRow>(db, 'SELECT * FROM orders WHERE game_id = ? AND turn = ? AND player_id = ?', game.id, game.turn, player.id);
     const lastTurn = game.status === 'finished' ? state.turn : game.turn - 1;
-    const last = lastTurn >= 1 ? q.result.get(game.id, lastTurn) : null;
+    const last = lastTurn >= 1
+      ? getRow<TurnResultRow>(db, 'SELECT * FROM turn_results WHERE game_id = ? AND turn = ?', game.id, lastTurn)
+      : undefined;
     return {
       game: { id: game.id, name: game.name, status: game.status, turn: game.turn, deadline: game.deadline, turnLengthSec: game.turn_length_sec },
-      me: { id: player.id, name: player.name || player.email, side: player.side, isHost: !!player.is_host },
-      players: players.map((p) => ({ id: p.id, name: p.name || p.email.split('@')[0], side: p.side, submitted: submitted.has(p.id), missedTurns: p.missed_turns })),
+      me: { id: player.id, name: displayName(player), side: player.side, isHost: !!player.is_host },
+      players: acceptedPlayers(game.id).map((p) => ({
+        id: p.id, name: p.name || p.email.split('@')[0], side: p.side ?? 0, submitted: submitted.has(p.id), missedTurns: p.missed_turns,
+      })),
       view: viewFn(state, player.id),
-      myOrders: mine ? JSON.parse(mine.orders_json) : null,
+      myOrders: mine ? (JSON.parse(mine.orders_json) as PlayerOrders) : null,
       submittedAt: mine ? mine.submitted_at : null,
-      lastTurn: last ? { turn: last.turn, events: JSON.parse(last.logs_json)[player.id] || [] } : null,
+      lastTurn: last
+        ? { turn: last.turn, events: (JSON.parse(last.logs_json) as Record<PlayerId, GameEvent[]>)[player.id] || [] }
+        : null,
     };
   }
 

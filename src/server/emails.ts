@@ -1,7 +1,12 @@
 // Email templates. Each returns { subject, text, html }.
 import { esc, formatDeadline, formatDuration } from './html.js';
+import type { GameRow } from './db.js';
+import type { Scenario } from '../shared/scenario.js';
 
-function wrap(title, bodyHtml) {
+export interface EmailContent { subject: string; text: string; html: string }
+interface Person { name: string | null; email: string }
+
+function wrap(title: string, bodyHtml: string): string {
   return `<!doctype html><html><body style="margin:0;background:#f3efe6;font-family:Georgia,serif;color:#2d2a24">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fffdf8;border:1px solid #d8cfbd;border-radius:6px">
@@ -15,11 +20,11 @@ This link is personal to you. Anyone who has it can give orders to your army, so
 </td></tr></table></td></tr></table></body></html>`;
 }
 
-function button(href, label) {
+function button(href: string, label: string): string {
   return `<p style="margin:20px 0"><a href="${esc(href)}" style="background:#8a3b12;color:#fff;text-decoration:none;padding:12px 22px;border-radius:4px;display:inline-block;font-weight:bold">${esc(label)}</a></p>`;
 }
 
-export function inviteEmail({ game, host, link, scenario }) {
+export function inviteEmail({ game, host, link, scenario }: { game: GameRow; host: Person; link: string; scenario: Scenario }): EmailContent {
   const subject = `${host.name || host.email} invites you to a game of Battle Lines`;
   const text = `${host.name || host.email} has invited you to "${game.name}", a game of Battle Lines.
 
@@ -35,7 +40,7 @@ ${button(link, 'Accept or decline')}`);
   return { subject, text, html };
 }
 
-export function hostCreatedEmail({ game, link, invitees }) {
+export function hostCreatedEmail({ game, link, invitees }: { game: GameRow; link: string; invitees: string[] }): EmailContent {
   const subject = `Your Battle Lines game "${game.name}" is set up`;
   const text = `Invitations have been sent to: ${invitees.join(', ')}.
 
@@ -49,7 +54,7 @@ ${button(link, 'Open your command post')}`);
   return { subject, text, html };
 }
 
-export function turnEmail({ game, player, turn, link, deadline, firstTurn }) {
+export function turnEmail({ game, player, turn, link, deadline, firstTurn }: { game: GameRow; player: Person; turn: number; link: string; deadline: number; firstTurn: boolean }): EmailContent {
   const subject = firstTurn
     ? `${game.name}: the battle begins — orders due ${formatDeadline(deadline)}`
     : `${game.name}: turn ${turn - 1} results are in — turn ${turn} orders due ${formatDeadline(deadline)}`;
@@ -70,7 +75,7 @@ ${button(link, 'Open your map and give orders')}
   return { subject, text, html };
 }
 
-export function reminderEmail({ game, turn, link, deadline }) {
+export function reminderEmail({ game, turn, link, deadline }: { game: GameRow; turn: number; link: string; deadline: number }): EmailContent {
   const subject = `Reminder: ${game.name} turn ${turn} orders due ${formatDeadline(deadline)}`;
   const text = `You haven't submitted orders for turn ${turn} yet. They are due by ${formatDeadline(deadline)}.
 ${link}
@@ -82,7 +87,7 @@ ${button(link, 'Give orders now')}`);
   return { subject, text, html };
 }
 
-export function finalEmail({ game, link, resultText }) {
+export function finalEmail({ game, link, resultText }: { game: GameRow; link: string; resultText: string }): EmailContent {
   const subject = `${game.name}: the battle is over`;
   const text = `${resultText}
 
@@ -92,7 +97,7 @@ See the final map: ${link}
   return { subject, text, html };
 }
 
-export function cancelledEmail({ game }) {
+export function cancelledEmail({ game }: { game: GameRow }): EmailContent {
   const subject = `${game.name} has been cancelled`;
   const text = `The host has cancelled "${game.name}".`;
   const html = wrap('Game cancelled', `<p>The host has cancelled <b>${esc(game.name)}</b>.</p>`);

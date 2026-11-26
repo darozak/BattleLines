@@ -1,9 +1,12 @@
 // Server-rendered pages. The map itself is drawn in the browser by public/game.js.
 import { esc, formatDeadline, formatDuration } from './html.js';
-import { SCENARIOS, SIDE_COLORS, SIDE_NAMES } from './engine/scenario.js';
-import { TURN_LENGTHS } from './games.js';
+import { SCENARIOS, SIDE_COLORS, SIDE_NAMES } from '../shared/scenario.js';
+import { TURN_LENGTHS, type CreateGameInput } from './games.js';
+import type { EmailRow, GameRow, PlayerRow } from './db.js';
 
-export function layout(title, body, { devTools = false, wide = false } = {}) {
+export interface LayoutOptions { devTools?: boolean; wide?: boolean }
+
+export function layout(title: string, body: string, { devTools = false, wide = false }: LayoutOptions = {}): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title><link rel="stylesheet" href="/static/style.css"></head>
@@ -11,11 +14,11 @@ export function layout(title, body, { devTools = false, wide = false } = {}) {
 <main class="${wide ? 'wide' : ''}">${body}</main></body></html>`;
 }
 
-const msg = (error) => (error ? `<p class="error">${esc(error)}</p>` : '');
+const msg = (error?: string) => (error ? `<p class="error">${esc(error)}</p>` : '');
 
-export function homePage({ error, values = {} } = {}) {
+export function homePage({ error, values = {} }: { error?: string; values?: CreateGameInput } = {}): string {
   const sc = SCENARIOS.crossroads;
-  const opt = (k) => `<option value="${k}" ${values.turnLength === k ? 'selected' : ''}>${formatDuration(TURN_LENGTHS[k])}</option>`;
+  const opt = (k: string) => `<option value="${k}" ${values.turnLength === k ? 'selected' : ''}>${formatDuration(TURN_LENGTHS[k])}</option>`;
   return `
 <section class="hero"><h1>Correspondence warfare, one week at a time.</h1>
 <p>Invite your friends by email. Each week everyone gets a link showing what their troops can see, gives orders, and the
@@ -33,7 +36,7 @@ battle is resolved for everyone at the same moment.</p></section>
 </form></section>`;
 }
 
-export function invitePage({ game, player, host, error }) {
+export function invitePage({ game, player, host, error }: { game: GameRow; player: PlayerRow; host: PlayerRow; error?: string }): string {
   return `<section class="card"><h2>${esc(game.name)}</h2>${msg(error)}
 <p><b>${esc(host.name || host.email)}</b> has invited you to a game of Battle Lines.</p>
 <p>Scenario: ${esc(SCENARIOS[game.scenario].name)}<br>Turn length: ${esc(formatDuration(game.turn_length_sec))}</p>
@@ -43,7 +46,7 @@ export function invitePage({ game, player, host, error }) {
 <button name="answer" value="decline" class="secondary">Decline</button></div></form></section>`;
 }
 
-export function lobbyPage({ game, player, players, error, created }) {
+export function lobbyPage({ game, player, players, error, created }: { game: GameRow; player: PlayerRow; players: PlayerRow[]; error?: string; created?: boolean }): string {
   const rows = players.map((p) => `<tr><td>${esc(p.name || '—')}</td><td>${esc(p.email)}</td>
     <td><span class="status ${p.invite_status}">${p.is_host ? 'host' : p.invite_status}</span></td></tr>`).join('');
   const accepted = players.filter((p) => p.invite_status === 'accepted').length;
@@ -57,16 +60,19 @@ ${created ? '<p class="ok">Invitations sent. We also emailed you this link: book
 <table class="roster"><tr><th>Name</th><th>Email</th><th>Status</th></tr>${rows}</table>${hostControls}</section>`;
 }
 
-export function messagePage(title, text) {
+export function messagePage(title: string, text: string): string {
   return `<section class="card"><h2>${esc(title)}</h2><p>${esc(text)}</p></section>`;
 }
 
-export function gamePage({ game, player }) {
+export function gamePage({ player }: { player: PlayerRow }): string {
   return `<div id="app" data-token="${esc(player.token)}" data-colors='${esc(JSON.stringify(SIDE_COLORS))}' data-sides='${esc(JSON.stringify(SIDE_NAMES))}'>
-<p>Loading map…</p></div><script type="module" src="/static/game.js"></script>`;
+<p>Loading map…</p></div><script type="module" src="/static/client/game.js"></script>`;
 }
 
-export function devPage({ games, emails }) {
+export type DevGame = GameRow & { players: PlayerRow[] };
+export type DevEmail = Pick<EmailRow, 'id' | 'to_addr' | 'subject' | 'status' | 'created_at'>;
+
+export function devPage({ games, emails }: { games: DevGame[]; emails: DevEmail[] }): string {
   const g = games.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.status)}</td><td>${x.turn}</td>
     <td>${x.deadline ? esc(formatDeadline(x.deadline)) : '—'}</td>
     <td>${x.players.map((p) => `<a href="/p/${esc(p.token)}">${esc(p.name || p.email)}</a>`).join(', ')}</td>

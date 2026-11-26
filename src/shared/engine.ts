@@ -4,15 +4,17 @@
 // simultaneous-turn pipeline. Replace it as the real rules are written.
 import { neighbors, distance, line, inBounds } from './hex.js';
 import { terrainAt } from './terrain.js';
-import { createRng } from './rng.js';
+import { createRng, type Rng } from './rng.js';
+import type {
+  AttackEvent, Datasheet, GameEvent, GameState, Ghost, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
+} from './types.js';
 
-const clone = (x) => structuredClone(x);
-const alive = (state) => state.units.filter((u) => u.strength > 0);
-const stats = (state, unit) => state.datasheets[unit.type];
+const alive = (state: GameState): Unit[] => state.units.filter((u) => u.strength > 0);
+const stats = (state: GameState, unit: { type: string }): Datasheet => state.datasheets[unit.type];
 
 // ---------------------------------------------------------------- spotting
 
-export function canSee(state, fromHex, toHex, sight) {
+export function canSee(state: GameState, fromHex: HexKey, toHex: HexKey, sight: number): boolean {
   if (distance(fromHex, toHex) > sight) return false;
   const path = line(fromHex, toHex);
   for (let i = 1; i < path.length - 1; i++) {
@@ -21,9 +23,9 @@ export function canSee(state, fromHex, toHex, sight) {
   return true;
 }
 
-export function visibleHexes(state, playerId) {
+export function visibleHexes(state: GameState, playerId: PlayerId): Set<HexKey> {
   const { cols, rows } = state.map;
-  const seen = new Set();
+  const seen = new Set<HexKey>();
   for (const u of alive(state)) {
     if (u.owner !== playerId) continue;
     const sight = stats(state, u).sight + terrainAt(state.map, u.hex).sightBonus;
@@ -39,17 +41,26 @@ export function visibleHexes(state, playerId) {
 
 // ---------------------------------------------------------------- orders
 
-// Orders: { [unitId]: { path: [hex, hex, ...] } } where path excludes the start hex.
-export function validateOrders(state, playerId, orders) {
-  const errors = [];
-  const clean = {};
-  for (const [unitId, order] of Object.entries(orders || {})) {
+export interface ValidationResult {
+  ok: boolean;
+  errors: string[];
+  /** Only the valid, non-empty orders. */
+  orders: PlayerOrders;
+}
+
+/** Checks orders submitted by a player. Input is untrusted (it comes from the browser). */
+export function validateOrders(state: GameState, playerId: PlayerId, orders: unknown): ValidationResult {
+  const errors: string[] = [];
+  const clean: PlayerOrders = {};
+  const entries = orders && typeof orders === 'object' ? Object.entries(orders as Record<string, unknown>) : [];
+  for (const [unitId, order] of entries) {
     const unit = state.units.find((u) => u.id === unitId);
     if (!unit || unit.owner !== playerId || unit.strength <= 0) {
       errors.push(`${unitId}: not your unit`);
       continue;
     }
-    const path = Array.isArray(order?.path) ? order.path.map(String) : [];
+    const rawPath = (order as { path?: unknown } | null)?.path;
+    const path = Array.isArray(rawPath) ? rawPath.map(String) : [];
     let mp = stats(state, unit).move;
     let prev = unit.hex;
     let ok = true;
@@ -72,15 +83,25 @@ export function validateOrders(state, playerId, orders) {
 
 // ---------------------------------------------------------------- resolution
 
-function enemiesAdjacent(units, unit) {
+function enemiesAdjacent(units: Unit[], unit: Unit): Unit[] {
   const adj = new Set(neighbors(unit.hex));
   return units.filter((o) => o.owner !== unit.owner && o.strength > 0 && adj.has(o.hex));
 }
 
-function resolveMovement(state, ordersByPlayer, rng, events) {
+interface Mover {
+  unit: Unit;
+  path: HexKey[];
+  mp: number;
+  traversed: HexKey[];
+  stopped: boolean;
+  waits: number;
+  reason: string | null;
+}
+
+function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, rng: Rng, events: GameEvent[]): void {
   const units = alive(state);
   const byId = new Map(units.map((u) => [u.id, u]));
-  const movers = new Map();
+  const movers = new Map<UnitId, Mover>();
   for (const orders of Object.values(ordersByPlayer)) {
     for (const [unitId, order] of Object.entries(orders)) {
       const u = byId.get(unitId);
@@ -89,7 +110,7 @@ function resolveMovement(state, ordersByPlayer, rng, events) {
         traversed: [u.hex], stopped: false, waits: 0, reason: null });
     }
   }
-  const stop = (m, reason) => { if (!m.stopped) { m.stopped = true; m.reason = reason; } };
+  const stop = (m: Mover, reason: string) => { if (!m.stopped) { m.stopped = true; m.reason = reason; } };
   const maxImpulses = 3 * Math.max(0, ...[...movers.values()].map((m) => m.path.length));
 
   for (let impulse = 0; impulse < maxImpulses; impulse++) {
@@ -99,13 +120,13 @@ function resolveMovement(state, ordersByPlayer, rng, events) {
     const adjBefore = new Map(active.map((m) => [m.unit.id, new Set(enemiesAdjacent(units, m.unit).map((e) => e.id))]));
 
     // Everyone declares the hex they want to enter this impulse.
-    const wants = new Map();
+    const wants = new Map<HexKey, Mover[]>();
     for (const m of active) {
       const next = m.path[0];
       if (!wants.has(next)) wants.set(next, []);
-      wants.get(next).push(m);
+      wants.get(next)!.push(m);
     }
-    const candidate = new Map(); // hex -> mover allowed to try entering it
+    const candidate = new Map<HexKey, Mover>(); // hex -> mover allowed to try entering it
     for (const [hex, ms] of [...wants].sort(([a], [b]) => a.localeCompare(b))) {
       const owners = new Set(ms.map((m) => m.unit.owner));
       if (owners.size > 1) {
@@ -117,20 +138,20 @@ function resolveMovement(state, ordersByPlayer, rng, events) {
       candidate.set(hex, ms.length > 1 ? ms[rng.int(ms.length)] : ms[0]);
     }
     // Accept moves into empty hexes, then moves into hexes vacated by accepted friendly moves.
-    const accepted = new Set();
+    const accepted = new Set<Mover>();
     let changed = true;
     while (changed) {
       changed = false;
       for (const [hex, m] of candidate) {
         if (accepted.has(m) || m.stopped) continue;
         const occ = occupant.get(hex);
-        if (!occ || occ === m.unit) { accepted.add(m); changed = true; }
+        if (!occ) { accepted.add(m); changed = true; }
         else if (occ.owner !== m.unit.owner) { stop(m, 'blocked by enemy'); }
         else if ([...accepted].some((a) => a.unit === occ)) { accepted.add(m); changed = true; }
       }
     }
     for (const m of accepted) {
-      const hex = m.path.shift();
+      const hex = m.path.shift()!;
       m.unit.hex = hex;
       m.mp -= terrainAt(state.map, hex).cost;
       m.traversed.push(hex);
@@ -143,7 +164,7 @@ function resolveMovement(state, ordersByPlayer, rng, events) {
     // Contact: a moving unit halts when it becomes adjacent to a new enemy.
     for (const m of active) {
       if (m.stopped || !m.path.length) continue;
-      const before = adjBefore.get(m.unit.id);
+      const before = adjBefore.get(m.unit.id)!;
       if (enemiesAdjacent(units, m.unit).some((e) => !before.has(e.id))) stop(m, 'contact');
     }
   }
@@ -152,14 +173,14 @@ function resolveMovement(state, ordersByPlayer, rng, events) {
     if (m.traversed.length > 1) {
       events.push({ type: 'move', unit: m.unit.id, owner: m.unit.owner, unitType: m.unit.type, path: m.traversed });
     }
-    if (m.stopped) events.push({ type: 'halt', unit: m.unit.id, owner: m.unit.owner, hex: m.unit.hex, reason: m.reason });
+    if (m.stopped) events.push({ type: 'halt', unit: m.unit.id, owner: m.unit.owner, hex: m.unit.hex, reason: m.reason! });
   }
 }
 
-function resolveCombat(state, rng, events) {
+function resolveCombat(state: GameState, rng: Rng, events: GameEvent[]): void {
   // PLACEHOLDER: every unit adjacent to an enemy attacks the weakest one; 2d6 - cover >= 8 hits.
   const units = alive(state);
-  const hits = new Map();
+  const hits = new Map<UnitId, number>();
   for (const u of units) {
     const targets = enemiesAdjacent(units, u).sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
     if (!targets.length) continue;
@@ -172,13 +193,13 @@ function resolveCombat(state, rng, events) {
     if (hit) hits.set(t.id, (hits.get(t.id) || 0) + 1);
   }
   for (const [id, n] of hits) {
-    const u = state.units.find((x) => x.id === id);
+    const u = state.units.find((x) => x.id === id)!;
     u.strength = Math.max(0, u.strength - n);
     if (u.strength === 0) events.push({ type: 'destroyed', unit: u.id, owner: u.owner, unitType: u.type, hex: u.hex });
   }
 }
 
-function resolveScoring(state, events) {
+function resolveScoring(state: GameState, events: GameEvent[]): void {
   const units = alive(state);
   for (const hex of state.objectives) {
     const holder = units.find((u) => u.hex === hex);
@@ -189,9 +210,9 @@ function resolveScoring(state, events) {
   }
 }
 
-function filterEvents(state, events, playerId, seenBefore, seenAfter) {
-  const seen = (h) => seenBefore.has(h) || seenAfter.has(h);
-  const out = [];
+function filterEvents(state: GameState, events: GameEvent[], playerId: PlayerId, seenBefore: Set<HexKey>, seenAfter: Set<HexKey>): GameEvent[] {
+  const seen = (h: HexKey) => seenBefore.has(h) || seenAfter.has(h);
+  const out: GameEvent[] = [];
   for (const e of events) {
     switch (e.type) {
       case 'move':
@@ -207,10 +228,15 @@ function filterEvents(state, events, playerId, seenBefore, seenAfter) {
       case 'clash':
         if (seenAfter.has(e.hex) || e.units.some((id) => state.units.find((u) => u.id === id)?.owner === playerId)) out.push(e);
         break;
-      case 'attack':
-        if (e.attackerOwner === playerId || e.targetOwner === playerId || (seenAfter.has(e.attackerHex) && seenAfter.has(e.targetHex))) out.push(e);
-        else if (seenAfter.has(e.targetHex)) out.push({ ...e, attacker: null, attackerType: null, attackerHex: null, unseenAttacker: true });
+      case 'attack': {
+        const visibleAttacker = e.attackerHex !== null && seenAfter.has(e.attackerHex);
+        if (e.attackerOwner === playerId || e.targetOwner === playerId || (visibleAttacker && seenAfter.has(e.targetHex))) out.push(e);
+        else if (seenAfter.has(e.targetHex)) {
+          const hidden: AttackEvent = { ...e, attacker: null, attackerType: null, attackerHex: null, unseenAttacker: true };
+          out.push(hidden);
+        }
         break;
+      }
       case 'destroyed':
         if (e.owner === playerId || seenAfter.has(e.hex)) out.push(e);
         break;
@@ -221,13 +247,21 @@ function filterEvents(state, events, playerId, seenBefore, seenAfter) {
   return out;
 }
 
-export function resolveTurn(prevState, ordersByPlayer, seed) {
-  const state = clone(prevState);
+export interface TurnResolution {
+  state: GameState;
+  /** Everything that happened (for the referee log and the end-of-game replay). */
+  events: GameEvent[];
+  /** What each player is allowed to know about what happened. */
+  logs: Record<PlayerId, GameEvent[]>;
+}
+
+export function resolveTurn(prevState: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, seed: number): TurnResolution {
+  const state = structuredClone(prevState);
   const rng = createRng(seed);
-  const events = [];
+  const events: GameEvent[] = [];
   const seenBefore = Object.fromEntries(state.players.map((p) => [p.id, visibleHexes(state, p.id)]));
 
-  const clean = {};
+  const clean: Record<PlayerId, PlayerOrders> = {};
   for (const p of state.players) clean[p.id] = validateOrders(state, p.id, ordersByPlayer[p.id] || {}).orders;
 
   resolveMovement(state, clean, rng, events);
@@ -246,7 +280,7 @@ export function resolveTurn(prevState, ordersByPlayer, seed) {
     events.push({ type: 'gameover', ...state.result });
   }
 
-  const logs = {};
+  const logs: Record<PlayerId, GameEvent[]> = {};
   for (const p of state.players) {
     const seenAfter = visibleHexes(state, p.id);
     logs[p.id] = filterEvents(state, events, p.id, seenBefore[p.id], seenAfter);
@@ -265,8 +299,8 @@ export function resolveTurn(prevState, ordersByPlayer, seed) {
   return { state, events, logs };
 }
 
-// Record what everyone can see at the start of the game.
-export function initialSpotting(state) {
+/** Record what everyone can see at the start of the game. */
+export function initialSpotting(state: GameState): GameState {
   for (const p of state.players) {
     const seen = visibleHexes(state, p.id);
     for (const u of state.units) {
@@ -278,16 +312,16 @@ export function initialSpotting(state) {
   return state;
 }
 
-// What a single player is allowed to know. Hidden information never leaves the server.
-export function playerView(state, playerId) {
+/** What a single player is allowed to know. Hidden information never leaves the server. */
+export function playerView(state: GameState, playerId: PlayerId): PlayerView {
   const seen = visibleHexes(state, playerId);
-  const units = [];
+  const units: VisibleUnit[] = [];
   for (const u of alive(state)) {
     if (u.owner === playerId) units.push({ ...u, ...stats(state, u), own: true });
     else if (seen.has(u.hex)) units.push({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, strength: u.strength, code: stats(state, u).code, own: false });
   }
   const visibleIds = new Set(units.map((u) => u.id));
-  const ghosts = Object.entries(state.lastSeen[playerId] || {})
+  const ghosts: Ghost[] = Object.entries(state.lastSeen[playerId] || {})
     .filter(([id]) => !visibleIds.has(id))
     .map(([id, g]) => ({ id, ...g, code: state.datasheets[g.type].code }));
   return {
