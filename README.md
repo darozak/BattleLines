@@ -30,3 +30,45 @@
 ## Sources of Inspiration
 - [Warhammer](https://www.warhammer-community.com/wp-content/uploads/2020/07/Lw4o3USx1R8sU7cQ.pdf)
 - [One Page Rules](https://onepagerules.com/)
+
+## Prototype
+
+A working prototype of the website and email system lives in this repo. The
+movement, spotting and combat rules in it are **placeholders**: they exist to
+exercise the game flow, and will be replaced by `rules.md` once it is written.
+
+### Running it
+
+Requires Node.js 22.5 or newer. No database server is needed (it uses SQLite).
+
+```bash
+npm install
+npm run dev     # http://localhost:3000, with dev tools at /dev
+npm test
+```
+
+With `npm run dev`, emails are not sent. They are saved to an outbox at
+**http://localhost:3000/dev**, where you can read each email and click its links.
+That page also lists every player's link and has a **Resolve now** button, so you
+can play all sides of a game from one browser without waiting a week.
+
+### Configuration (environment variables)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `BASE_URL` | `http://localhost:PORT` | Public URL used in email links |
+| `SMTP_URL` | unset | e.g. `smtps://user:pass@smtp.example.com`. If unset, emails stay in the outbox |
+| `MAIL_FROM` | `Battle Lines <no-reply@battlelines.local>` | Sender address |
+| `DATABASE_FILE` | `data/battlelines.db` | SQLite file |
+| `DEV_TOOLS` | unset | `1` enables `/dev` (never enable in production) |
+| `TICK_MS` | `30000` | How often deadlines are checked |
+
+### Code layout
+
+- `src/engine/`: the rules engine (pure functions, no I/O). `engine.js` resolves a turn,
+  `scenario.js` holds the placeholder map, units and datasheets, `hex.js` the hex maths.
+- `src/games.js`: invitations, turn lifecycle, deadlines, reminders and emails.
+- `src/emails.js`: email templates. `src/mailer.js`: SMTP / outbox delivery.
+- `src/app.js`, `src/views.js`: web routes and pages. `public/game.js`: the interactive map.
+- `test/`: engine tests and a full end-to-end game played over HTTP.
