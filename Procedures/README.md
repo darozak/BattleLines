@@ -6,7 +6,7 @@ These standard operating procedures (SOPs) say how the project lead, contributor
 - **Attachments** are in [Attachments/](Attachments/): machine instructions (M) that Claude follows, templates (T), and appendices (A).
 - **Anchors**: every numbered item has a link anchor, so `…/AD-01%20Creating%20and%20resolving%20GitHub%20issues.md#5.6` opens AD-01 at §5.6. Run `python3 Procedures/Tools/update_anchors.py` after renumbering; `--check` only reports.
 
-To have Claude do a task, name the machine instructions, for example: "Apply AD-01-M1 to #4", "Apply AD-01-M4" (an issue sweep), or "Apply QA-01-M2 to this pull request."
+To have Claude do a task, name the machine instructions, for example: "Apply AD-01-M1 to #4", "Apply AD-01-M4" (an issue sweep), or "Apply QA-01-M2 to these SOP changes."
 
 ## Index
 
@@ -26,6 +26,6 @@ To have Claude do a task, name the machine instructions, for example: "Apply AD-
 
 ## Who does what
 
-- **The project lead** (@darozak) sets direction, approves and merges pull requests, and owns the repository and its GitHub Pages settings.
+- **The project lead** (@darozak) sets direction, says when Claude's changes are merged, merges contributors' pull requests, and owns the repository and its GitHub Pages settings.
 - **Contributors** make changes, review them, and bring ideas and feedback in as issues, per [CONTRIBUTING.md](../CONTRIBUTING.md). The project is MIT licensed ([LICENSE](../LICENSE)).
-- **Claude** tracks every request in an issue, makes changes on a branch and opens pull requests, and follows each publish. Claude never merges on its own judgment and never posts outside GitHub.
+- **Claude** tracks every request in an issue, makes changes on its session branch, merges them into `main` when the project lead says so, and follows each publish. Claude never merges on its own judgment and never posts outside GitHub.

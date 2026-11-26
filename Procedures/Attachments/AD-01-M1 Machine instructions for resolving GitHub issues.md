@@ -10,7 +10,7 @@
 
    1. <a id="3.1"></a>Read the issue's title, description and every comment. If the intent or scope is unclear, ask in the issue before starting rather than guessing. Check that the person asking has the permission to ask for the change, per [AD-01](../SOPs/AD-01%20Creating%20and%20resolving%20GitHub%20issues.md) §5.7.
 
-   2. <a id="3.2"></a>Fetch `main` and work on a branch from it, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
+   2. <a id="3.2"></a>Fetch `main` and work on your session branch, up to date with it, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
 
    3. <a id="3.3"></a>Follow the SOP that governs the work:
 
@@ -20,10 +20,10 @@
 
    4. <a id="3.4"></a>Make the change, run the checks the governing SOP requires, and commit with a message that names the issue number.
 
-   5. <a id="3.5"></a>Push the branch and open a pull request into `main` that says `Closes #N` for every issue it resolves, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
+   5. <a id="3.5"></a>Push the branch and report the change to the project lead, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md) §5.1.4.
 
-   6. <a id="3.6"></a>Post a comment on the issue that says what was done and links the pull request, attributed per [AD-01](../SOPs/AD-01%20Creating%20and%20resolving%20GitHub%20issues.md) §5.6.
+   6. <a id="3.6"></a>When the project lead says "merge", merge per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md) §5.1.5, then close the issue with a comment that says what was done and names the merge commit, attributed per [AD-01](../SOPs/AD-01%20Creating%20and%20resolving%20GitHub%20issues.md) §5.6.
 
-   7. <a id="3.7"></a>Do not merge. The project lead merges, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
+   7. <a id="3.7"></a>Do not merge until the project lead says to, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
 
-4. <a id="4"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including the pull request opened and the checks run.
+4. <a id="4"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including the commits made, the checks run and whether the change was merged.

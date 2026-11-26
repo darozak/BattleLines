@@ -16,10 +16,10 @@
 
    4. <a id="3.4"></a>Decide whether the change alters how games in progress play out or how links are written. If it does, follow [DV-01](../SOPs/DV-01%20Making%20and%20testing%20game%20changes.md) §4.4.
 
-   5. <a id="3.5"></a>Run the checks in [DV-01](../SOPs/DV-01%20Making%20and%20testing%20game%20changes.md) §5.3 that apply. If a check cannot run in your environment, say so in the pull request rather than claiming it passed.
+   5. <a id="3.5"></a>Run the checks in [DV-01](../SOPs/DV-01%20Making%20and%20testing%20game%20changes.md) §5.3 that apply. If a check cannot run in your environment, say so rather than claiming it passed.
 
    6. <a id="3.6"></a>Work through the "Docs to keep current" checklist ([DV-01-A1](DV-01-A1%20Docs%20to%20keep%20current.md)) and update every doc the change affects.
 
-   7. <a id="3.7"></a>Open the pull request per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md), listing the checks run, the docs updated, and any change in link size or to games in progress.
+   7. <a id="3.7"></a>Report the change to the project lead per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md) §5.1.4, listing the checks run, the docs updated, and any change in link size or to games in progress.
 
 4. <a id="4"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including the checks run, their results and the docs updated.

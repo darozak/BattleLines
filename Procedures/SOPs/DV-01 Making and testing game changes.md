@@ -30,13 +30,13 @@
 
    4. <a id="4.4"></a>A change that alters how a turn plays out (the rules, a scenario, a datasheet, the map generator or the dice) or how a link is written changes the games already in progress, because their links are replayed by the new code. For such a change:
 
-      1. <a id="4.4.1"></a>say so in the issue and the pull request;
+      1. <a id="4.4.1"></a>say so in the issue and when reporting the change to the project lead;
 
       2. <a id="4.4.2"></a>increase `LINK_VERSION` in `src/shared/link.ts`, so old links say they are from a different version instead of playing out differently;
 
       3. <a id="4.4.3"></a>ask the project lead whether the previous version should stay available for games in progress, per `design.md`, "Versioning".
 
-   5. <a id="4.5"></a>Keep links short. When a change adds to what a link carries, check the sizes the link tests print and say in the pull request how they changed.
+   5. <a id="4.5"></a>Keep links short. When a change adds to what a link carries, check the sizes the link tests print and say how they changed.
 
    6. <a id="4.6"></a>The movement, combat and scoring rules in the code are placeholders until `rules.md` is written. A rule change follows `rules.md`; if the two disagree, ask the project lead.
 
@@ -54,9 +54,9 @@
 
       3. <a id="5.3.3"></a>For a change to the web page or to how the game plays: `npm run dev`, then create a game, play at least one turn for each player by opening each new link, and check the page at phone width as well as desktop width.
 
-   4. <a id="5.4"></a>Update every doc the change affects, using [DV-01-A1](../Attachments/DV-01-A1%20Docs%20to%20keep%20current.md), in the same pull request.
+   4. <a id="5.4"></a>Update every doc the change affects, using [DV-01-A1](../Attachments/DV-01-A1%20Docs%20to%20keep%20current.md), in the same change.
 
-   5. <a id="5.5"></a>Open the pull request and see it through to merge, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
+   5. <a id="5.5"></a>Report the change and see it through to merge, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
 
 6. # <a id="6"></a>References
 

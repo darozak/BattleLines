@@ -32,6 +32,6 @@
 
    6. <a id="3.6"></a>Attribute and link every comment per [AD-01](../SOPs/AD-01%20Creating%20and%20resolving%20GitHub%20issues.md) §5.5 and §5.6.
 
-   7. <a id="3.7"></a>Do not close issues during a sweep, and do not merge pull requests.
+   7. <a id="3.7"></a>Do not close issues or merge anything during a sweep.
 
-4. <a id="4"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including every issue reviewed and what was posted, every pull request opened, and every issue waiting on a person.
+4. <a id="4"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including every issue reviewed and what was posted, every change made, and every issue waiting on a person.

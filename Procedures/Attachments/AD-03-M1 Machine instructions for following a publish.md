@@ -4,7 +4,7 @@
 
 2. <a id="2"></a>Scope
 
-   1. <a id="2.1"></a>Apply these instructions after you merge a pull request into `main` on the project lead's say-so, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md), and whenever you are directed to publish or to check on a publish, per [AD-03](../SOPs/AD-03%20Publishing%20the%20live%20site.md).
+   1. <a id="2.1"></a>Apply these instructions after you merge a change into `main` on the project lead's say-so, per [AD-02](../SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md), and whenever you are directed to publish or to check on a publish, per [AD-03](../SOPs/AD-03%20Publishing%20the%20live%20site.md).
 
 3. <a id="3"></a>Following a publish
 
@@ -24,6 +24,6 @@
 
    5. <a id="3.5"></a>Tell the project lead the commit is live, with a link to the run and what was checked.
 
-   6. <a id="3.6"></a>If the live site is broken, tell the project lead at once and work on a fix-forward pull request if the cause is clear, per [AD-01-M1](AD-01-M1%20Machine%20instructions%20for%20resolving%20GitHub%20issues.md). Don't merge it until the project lead says to.
+   6. <a id="3.6"></a>If the live site is broken, tell the project lead at once and work on a fix forward on your session branch if the cause is clear, per [AD-01-M1](AD-01-M1%20Machine%20instructions%20for%20resolving%20GitHub%20issues.md). Don't merge it until the project lead says to.
 
 4. <a id="4"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including the commit published, the run's link and its result.

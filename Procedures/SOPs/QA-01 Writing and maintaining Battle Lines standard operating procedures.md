@@ -4,7 +4,7 @@
 
    1. <a id="1.1"></a>This standard operating procedure (SOP) sets out how Battle Lines SOPs are written, numbered, formatted and kept up to date.
 
-   2. <a id="1.2"></a>SOPs capture what the project has learned about running itself: how the project lead and Claude change the game, test it and publish it. Update an SOP whenever a process changes, in the same pull request as the change, so the improvement is locked in.
+   2. <a id="1.2"></a>SOPs capture what the project has learned about running itself: how the project lead and Claude change the game, test it and publish it. Update an SOP whenever a process changes, in the same change as the process, so the improvement is locked in.
 
 2. # <a id="2"></a>Roles and responsibilities
 
@@ -12,7 +12,7 @@
 
    2. <a id="2.2"></a>Developers and Claude are responsible for proposing SOP changes, through an issue per [AD-01](AD-01%20Creating%20and%20resolving%20GitHub%20issues.md), whenever they find a procedure that is missing, wrong or slower than it needs to be. Any contributor may propose one the same way, per `CONTRIBUTING.md`.
 
-   3. <a id="2.3"></a>Claude is responsible for applying the "Machine instructions for reviewing SOP changes" ([QA-01-M2](../Attachments/QA-01-M2%20Machine%20instructions%20for%20reviewing%20SOP%20changes.md)) to every pull request that changes an SOP or attachment.
+   3. <a id="2.3"></a>Claude is responsible for applying the "Machine instructions for reviewing SOP changes" ([QA-01-M2](../Attachments/QA-01-M2%20Machine%20instructions%20for%20reviewing%20SOP%20changes.md)) to every change to an SOP or attachment, before it is merged.
 
 3. # <a id="3"></a>Required resources
 
@@ -24,7 +24,7 @@
 
    2. <a id="4.2"></a>Write SOPs in plain language. Say who does what, in what order, and where the result goes. Prefer short numbered steps to long paragraphs.
 
-   3. <a id="4.3"></a>`CLAUDE.md` at the root of the repository is the short version of these SOPs that every Claude session reads first. When an SOP change affects a rule summarized there, update `CLAUDE.md` in the same pull request so the two never disagree. If they are found to disagree, post an issue for the project lead rather than guess which is right.
+   3. <a id="4.3"></a>`CLAUDE.md` at the root of the repository is the short version of these SOPs that every Claude session reads first. When an SOP change affects a rule summarized there, update `CLAUDE.md` in the same change so the two never disagree. If they are found to disagree, post an issue for the project lead rather than guess which is right.
 
    4. <a id="4.4"></a>These SOPs are adapted from the [Ex Machinis procedures](https://github.com/Darwin-River/Ex-Machinis/tree/main/Procedures). Where Battle Lines needs a procedure Ex Machinis already has (for example playtest rounds, or outreach), adapt that one rather than starting from nothing.
 
@@ -70,7 +70,7 @@
 
    11. <a id="5.11"></a>Give every numbered item a hidden link anchor named by its full section number, for example `5. # <a id="5"></a>Procedures` and `   2. <a id="5.2"></a>Use the following…`. A link ending in `#5.2` then opens the document at that item. Do not write anchors by hand: run `python3 Procedures/Tools/update_anchors.py` after every edit that adds, removes or renumbers an item. `python3 Procedures/Tools/update_anchors.py --check` lists any file whose anchors are out of date.
 
-   12. <a id="5.12"></a>Change SOPs the same way as any other part of the repository: through an issue and a pull request into `main`, per [AD-01](AD-01%20Creating%20and%20resolving%20GitHub%20issues.md) and [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md). Before the pull request is merged, Claude applies [QA-01-M2](../Attachments/QA-01-M2%20Machine%20instructions%20for%20reviewing%20SOP%20changes.md) to it, and the project lead reviews the changes and Claude's summary.
+   12. <a id="5.12"></a>Change SOPs the same way as any other part of the repository: through an issue and a merge into `main`, per [AD-01](AD-01%20Creating%20and%20resolving%20GitHub%20issues.md) and [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md). Before the change is merged, Claude applies [QA-01-M2](../Attachments/QA-01-M2%20Machine%20instructions%20for%20reviewing%20SOP%20changes.md) to it, and the project lead reviews the changes and Claude's summary.
 
    13. <a id="5.13"></a>Keep [Procedures/README.md](../README.md), the index of SOPs, up to date whenever an SOP is added, renamed or retired.
 

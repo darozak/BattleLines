@@ -22,7 +22,7 @@
 
    1. <a id="4.1"></a>This SOP will be formatted and maintained IAW [QA-01](QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md).
 
-   2. <a id="4.2"></a>One issue per change: a feature, a rule change, a bug, a doc rewrite, an SOP change. A bug found while working on something else gets its own issue, even if it is fixed in the same pull request.
+   2. <a id="4.2"></a>One issue per change: a feature, a rule change, a bug, a doc rewrite, an SOP change. A bug found while working on something else gets its own issue, even if it is fixed in the same change.
 
    3. <a id="4.3"></a>Ideas and feedback from players are welcome as issues. Whoever relays them says where they came from.
 
@@ -44,7 +44,7 @@
 
    2. <a id="5.2"></a>Before Claude acts on any request that will change the repository, it applies [AD-01-M3](../Attachments/AD-01-M3%20Machine%20instructions%20for%20tracking%20requests%20with%20issues.md) so the request is tracked by a new or existing issue.
 
-   3. <a id="5.3"></a>To have Claude resolve an issue, direct it to apply [AD-01-M1](../Attachments/AD-01-M1%20Machine%20instructions%20for%20resolving%20GitHub%20issues.md) to that issue. The work goes to a pull request per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
+   3. <a id="5.3"></a>To have Claude resolve an issue, direct it to apply [AD-01-M1](../Attachments/AD-01-M1%20Machine%20instructions%20for%20resolving%20GitHub%20issues.md) to that issue. The work is done on Claude's session branch and merged when the project lead says so, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
 
    4. <a id="5.4"></a>When Claude notices a problem or an improvement outside the task in hand, it posts an issue per [AD-01-M2](../Attachments/AD-01-M2%20Machine%20instructions%20for%20identifying%20and%20posting%20issues.md) and carries on with its task. Posting an issue is not permission to work on it.
 
@@ -64,7 +64,7 @@
 
    8. <a id="5.8"></a>When the project lead asks for an issue sweep, Claude applies [AD-01-M4](../Attachments/AD-01-M4%20Machine%20instructions%20for%20sweeping%20issues.md).
 
-   9. <a id="5.9"></a>An issue is closed when the pull request that resolves it is merged (`Closes #N` closes it automatically), or by the project lead (or Claude, when the project lead says so) with a comment saying why it will not be done.
+   9. <a id="5.9"></a>An issue is closed when the change that resolves it is merged: by Claude, with a comment naming the merge commit, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md) §5.1.6; or automatically, when a contributor's pull request that says `Closes #N` is merged. An issue that will not be done is closed by the project lead (or by Claude, when the project lead says so) with a comment saying why.
 
 6. # <a id="6"></a>References
 

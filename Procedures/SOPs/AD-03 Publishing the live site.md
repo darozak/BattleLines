@@ -10,7 +10,7 @@
 
    2. <a id="2.2"></a>Claude publishes only by merging when the project lead says to, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md), or by running the workflow when directed. After either, it follows the publish and reports the result, using the "Machine instructions for following a publish" ([AD-03-M1](../Attachments/AD-03-M1%20Machine%20instructions%20for%20following%20a%20publish.md)).
 
-   3. <a id="2.3"></a>Developers publish the same way, by getting a pull request merged.
+   3. <a id="2.3"></a>Contributors publish the same way, by getting a pull request merged.
 
 3. # <a id="3"></a>Required resources
 
@@ -24,13 +24,13 @@
 
    1. <a id="4.1"></a>This SOP will be formatted and maintained IAW [QA-01](QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md).
 
-   2. <a id="4.2"></a>Every merge to `main` is a release. Merge when the change is ready for players to meet, and keep pull requests small, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
+   2. <a id="4.2"></a>Every merge to `main` is a release. Merge when the change is ready for players to meet, and keep changes small, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
 
    3. <a id="4.3"></a>The site is static: everything in it is public, and it holds no secrets. Never put a key, password or private data in the repository or the site.
 
    4. <a id="4.4"></a>Games in progress live in players' links, not on the site. Every publish changes the code that reads and replays those links, so a change that alters how a turn plays out changes games in progress. Such changes follow [DV-01](DV-01%20Making%20and%20testing%20game%20changes.md) §4.4.
 
-   5. <a id="4.5"></a>Fix forward when you can: a small pull request that fixes the problem publishes itself once merged. Revert only when the live game can't wait for a fix.
+   5. <a id="4.5"></a>Fix forward when you can: a small fix publishes itself once merged. Revert only when the live game can't wait for a fix.
 
 5. # <a id="5"></a>Procedures
 
@@ -44,7 +44,7 @@
 
    2. <a id="5.2"></a>Publishing a change:
 
-      1. <a id="5.2.1"></a>Merge the pull request, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md). The workflow starts on its own.
+      1. <a id="5.2.1"></a>Merge the change into `main`, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md). The workflow starts on its own.
 
       2. <a id="5.2.2"></a>Watch the run in the **Actions** tab. It takes about a minute. If the tests fail, the `build` job stops and the live site is not changed.
 
@@ -60,7 +60,7 @@
 
       3. <a id="5.4.3"></a>If only the `deploy` job failed, re-run it once; a second failure is real. Open an issue as above.
 
-      4. <a id="5.4.4"></a>If the live site is broken and can't wait for a fix, revert the merge in a new pull request and merge it, on the project lead's say-so.
+      4. <a id="5.4.4"></a>If the live site is broken and can't wait for a fix, revert the change with a new commit (`git revert`, never a force-push) and merge it, on the project lead's say-so.
 
    5. <a id="5.5"></a>Pausing publishing, for example during a large change: **Actions → Deploy to GitHub Pages → ⋯ → Disable workflow**, and enable it again afterwards.
 

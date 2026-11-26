@@ -1,6 +1,6 @@
 # DV-01-A1: Docs to keep current
 
-1. <a id="1"></a>When a change affects players or how the project works, update these docs in the same pull request. This list is the one in `CLAUDE.md`, "Docs to keep current"; keep the two the same.
+1. <a id="1"></a>When a change affects players or how the project works, update these docs in the same change. This list is the one in `CLAUDE.md`, "Docs to keep current"; keep the two the same.
 
    1. <a id="1.1"></a>`README.md`: what the game is, how a game works, the live site link, the developer setup and the code layout.
 

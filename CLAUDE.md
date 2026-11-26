@@ -6,19 +6,20 @@ These rules apply to every Claude session on this repository. They are the short
 
 - Before starting a change, find or open a GitHub issue for it. One issue per change: a feature, a rule change, a bug, a doc rewrite, an SOP change (AD-01).
 - The issue says what is changing and why, in the requester's words where possible.
-- The pull request names the issue (`Closes #N`). A PR that carries several changes names every issue it closes.
-- A bug found while working gets its own issue, even when it is fixed in the same PR.
+- Commit messages name the issue, for example `Units can turn without moving (#21)`. After the merge, close each issue the change resolves with a comment naming the merge commit.
+- A bug found while working gets its own issue, even when it is fixed in the same change.
 - Every issue or comment Claude posts marks who said what and ends with "Posted by Claude from session LINK." and the Claude Code footer (AD-01 §5.6).
 
 ## Branches and merging
 
-- Work on the branch named for the session. Pull requests go into `main`, the default branch (AD-02).
-- Squash-merge only, only when CI is green, and only when the project lead says to merge.
+- Work on the branch named for the session. Run the checks, report the change, and wait for the project lead to say "merge" (AD-02).
+- To merge, bring the session branch up to date with `main` (re-running the checks if `main` moved), fast-forward `main` to it and push. No pull request. Never force-push `main`.
+- Contributors from outside the project open pull requests, which the project lead squash-merges when CI is green.
 - A merge to `main` publishes itself to the live site, https://darozak.github.io/BattleLines/. Follow the publish and report it, per AD-03 (`Procedures/SOPs/AD-03 Publishing the live site.md`).
 
 ## Docs to keep current
 
-When a change affects players or how the project works, update in the same PR (DV-01-A1):
+When a change affects players or how the project works, update in the same change (DV-01-A1):
 
 - `README.md` (what the game is, how a game works, setup, code layout)
 - `design.md` (how the game is built, the link format, turn resolution, versioning)

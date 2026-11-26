@@ -4,7 +4,7 @@
 
 2. <a id="2"></a>Scope
 
-   1. <a id="2.1"></a>Apply these instructions to every SOP and attachment changed in the pull request under review, plus every SOP related to one of them.
+   1. <a id="2.1"></a>Apply these instructions to every SOP and attachment changed in the change under review (on Claude's session branch or in a contributor's pull request), plus every SOP related to one of them.
 
    2. <a id="2.2"></a>An SOP is related to a changed SOP if either one cites the other, or one of the other's attachments, anywhere in its text. Find related SOPs by searching `Procedures/` for each changed SOP's ID (for example "AD-03") and its attachments' IDs (for example "AD-03-M1").
 
@@ -42,6 +42,6 @@
 
    1. <a id="5.1"></a>Fix only what these instructions cover. Do not change the substance of a procedure; list anything that needs a judgment call in the summary for the project lead.
 
-   2. <a id="5.2"></a>Commit the fixes to the pull request's branch with a message that names QA-01-M2.
+   2. <a id="5.2"></a>Commit the fixes to the same branch with a message that names QA-01-M2.
 
 6. <a id="6"></a>Provide a concise summary of activities performed and issues encountered when performing these instructions, including every document reviewed, every fix made and every question left for the project lead.
