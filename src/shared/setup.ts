@@ -47,6 +47,18 @@ export const ERAS: Record<string, Era> = {
         { id: 'dragoons', name: 'Light Dragoons', code: 'D', points: 25, move: 7, sight: 6, strength: 3, climb: 1 },
         { id: 'guards', name: 'Foot Guards', code: 'G', points: 40, move: 3, sight: 5, strength: 6, climb: 1 },
       ]) },
+      { id: 'austrian', name: 'Austrian Empire', description: 'Solid infantry, Grenzer skirmishers and heavy cuirassiers.', units: unitsOf('austrian', [
+        { id: 'line', name: 'Line Infantry', code: 'L', points: 20, move: 3, sight: 5, strength: 4, climb: 1 },
+        { id: 'grenzer', name: 'Grenzers', code: 'Z', points: 15, move: 5, sight: 7, strength: 2, climb: 2 },
+        { id: 'cuirassiers', name: 'Cuirassiers', code: 'C', points: 30, move: 6, sight: 6, strength: 4, climb: 1 },
+        { id: 'grenadiers', name: 'Grenadiers', code: 'G', points: 35, move: 3, sight: 5, strength: 5, climb: 1 },
+      ]) },
+      { id: 'prussian', name: 'Prussian Army', description: 'Landwehr in numbers, Jäger and hussars.', units: unitsOf('prussian', [
+        { id: 'landwehr', name: 'Landwehr', code: 'W', points: 15, move: 3, sight: 5, strength: 3, climb: 1 },
+        { id: 'jager', name: 'Jäger', code: 'J', points: 15, move: 5, sight: 7, strength: 2, climb: 2 },
+        { id: 'hussars', name: 'Black Hussars', code: 'H', points: 25, move: 7, sight: 6, strength: 3, climb: 1 },
+        { id: 'guard', name: 'Guard Infantry', code: 'G', points: 40, move: 3, sight: 5, strength: 6, climb: 1 },
+      ]) },
     ],
   },
   ww2: {
@@ -67,9 +79,24 @@ export const ERAS: Record<string, Era> = {
         { id: 'panzer', name: 'Panzer IV', code: 'P', points: 50, move: 5, sight: 4, strength: 7, climb: 1 },
         { id: 'gebirgs', name: 'Gebirgsjäger', code: 'J', points: 30, move: 4, sight: 6, strength: 4, climb: 2 },
       ]) },
+      { id: 'british', name: 'British Infantry Division', description: 'Rifle sections, Bren carriers, Churchills and commandos.', units: unitsOf('british', [
+        { id: 'riflemen', name: 'Rifle Section', code: 'R', points: 20, move: 4, sight: 5, strength: 4, climb: 1 },
+        { id: 'carrier', name: 'Bren Carrier', code: 'C', points: 20, move: 6, sight: 6, strength: 3, climb: 1 },
+        { id: 'churchill', name: 'Churchill', code: 'T', points: 45, move: 4, sight: 4, strength: 7, climb: 1 },
+        { id: 'commandos', name: 'Commandos', code: 'K', points: 30, move: 4, sight: 6, strength: 4, climb: 2 },
+      ]) },
+      { id: 'soviet', name: 'Soviet Rifle Division', description: 'Masses of riflemen with T-34s.', units: unitsOf('soviet', [
+        { id: 'riflemen', name: 'Rifle Squad', code: 'R', points: 15, move: 4, sight: 5, strength: 3, climb: 1 },
+        { id: 'scouts', name: 'Razvedchiki', code: 'S', points: 15, move: 6, sight: 7, strength: 2, climb: 2 },
+        { id: 't34', name: 'T-34', code: 'T', points: 45, move: 6, sight: 4, strength: 6, climb: 1 },
+        { id: 'guards', name: 'Guards Rifles', code: 'G', points: 25, move: 4, sight: 5, strength: 4, climb: 1 },
+      ]) },
     ],
   },
 };
+
+/** The most players an era allows: each player needs an army of their own. */
+export const maxPlayers = (era: Era) => Math.min(MAX_PLAYERS, era.armies.length);
 
 /** Every unit type in an era, keyed by its unique id. */
 export const eraDatasheets = (era: Era): Record<string, Datasheet> => Object.assign({}, ...era.armies.map((a) => a.units));
@@ -240,6 +267,7 @@ export function validateDeployment(state: GameState, playerId: PlayerId, input: 
   const army = era.armies.find((a) => a.id === d?.army);
   if (state.phase !== 'deploy') errors.push('The battle has already begun.');
   if (!army) return { ok: false, errors: [...errors, 'Choose one of this era\'s armies.'] };
+  if (Object.entries(state.armies).some(([p, a]) => p !== playerId && a === army.id)) errors.push(`The ${army.name} has already been chosen by another player.`);
   const units = Array.isArray(d?.units) ? d!.units : [];
   if (!units.length) errors.push('Place at least one unit.');
   const zone = new Set(zoneOf(state, playerId));

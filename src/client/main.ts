@@ -6,10 +6,10 @@
 //               link for the next player.
 import { mountBoard, SIDE_COLORS, SIDE_NAMES, type BoardContext, type BoardPlayer } from './board.js';
 import { esc, store } from './util.js';
-import { ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, MAX_PLAYERS, zoneOf } from '../shared/setup.js';
+import { ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, zoneOf } from '../shared/setup.js';
 import { boardView, previewTurn, attackOptions } from '../shared/engine.js';
 import {
-  createGame, endTurn, deploy, readGame, encodeGame, verifyReplay, turnsSince, packState, playerId,
+  createGame, endTurn, deploy, readGame, encodeGame, verifyReplay, turnsSince, packState, playerId, playerIndex,
   type Game, type GameLink, type PackedState, type TurnRecord,
 } from '../shared/game.js';
 import { LinkError } from '../shared/link.js';
@@ -116,7 +116,6 @@ function homeScreen(): void {
   const eraOptions = Object.values(ERAS).map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
   const sizeOptions = Object.values(MAP_SIZES).map((m) => `<option value="${esc(m.id)}" ${m.id === 'medium' ? 'selected' : ''}>${esc(m.name)} (${m.cols}×${m.rows}, ${m.turnLimit} rounds)</option>`).join('');
   const pointOptions = POINT_LIMITS.map((n) => `<option value="${n}" ${n === 150 ? 'selected' : ''}>${n} points</option>`).join('');
-  const countOptions = Array.from({ length: MAX_PLAYERS - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i).map((n) => `<option value="${n}">${n}</option>`).join('');
   page(`
     <section class="hero"><h1>Correspondence warfare, one link at a time.</h1>
       <p>Battle Lines runs entirely in your browser. The whole game travels in a link: take your turn,
@@ -128,9 +127,9 @@ function homeScreen(): void {
         <p class="hint" id="era-about"></p>
         <label>Map size <select name="size">${sizeOptions}</select></label>
         <label>Point limit (per player) <select name="points">${pointOptions}</select></label>
-        <label>Number of players <select name="count">${countOptions}</select></label>
+        <label>Number of players <select name="count"></select></label>
         <div id="names"></div>
-        <p class="hint">The game puts the players in a random order. On turn 0, each player in turn picks an army
+        <p class="hint">The game puts the players in a random order. On turn 0, each player in turn picks a different army
           from the era and places units in their starting zone, up to the point limit. Then the battle begins.</p>
         <p class="error" hidden></p>
         <button type="submit">Create game</button>
@@ -157,12 +156,15 @@ function homeScreen(): void {
   };
   const fillAbout = () => {
     const era = ERAS[eraSel.value];
-    about.textContent = `${era.description} Armies: ${era.armies.map((a) => a.name).join(', ')}.`;
+    about.textContent = `${era.description} Armies: ${era.armies.map((a) => a.name).join(', ')}. Each player picks a different army.`;
+    const keep = Number(countSel.value) || MIN_PLAYERS;
+    countSel.innerHTML = Array.from({ length: maxPlayers(era) - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i)
+      .map((n) => `<option value="${n}" ${n === Math.min(keep, maxPlayers(era)) ? 'selected' : ''}>${n}</option>`).join('');
+    fillNames();
   };
   eraSel.onchange = fillAbout;
   countSel.onchange = fillNames;
   fillAbout();
-  fillNames();
   formAction(form, async (data) => {
     const game = createGame({
       gameName: String(data.get('gameName') ?? ''), era: String(data.get('era')), size: String(data.get('size')),
@@ -254,6 +256,7 @@ function deployScreen(game: Game): void {
     notice: checkNotice(game, me),
     deploy: {
       armies: era.armies,
+      taken: Object.fromEntries(state.players.filter((p) => state.armies[p.id]).map((p) => [state.armies[p.id]!, link.players[playerIndex(p.id)]])),
       zone: zoneOf(state, playerId(me)),
       pointLimit: state.pointLimit,
       onFinish: async (d) => {

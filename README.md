@@ -12,8 +12,9 @@ turn at a time.
 
 1. **Set up.** Open the site and choose the era, the map size, the point limit and the number of
    players, and name every player. The game puts the players in a random order.
-2. **Deploy (turn 0).** Each player in turn picks one of the era's armies, then chooses units from it
-   and places them in their starting zone, up to the point limit, and passes the link on. Later
+2. **Deploy (turn 0).** Each player in turn picks one of the era's armies (no two players can pick the
+   same one), then chooses units from it and places them in their starting zone, up to the point limit,
+   and passes the link on. Units can be turned to face a new direction once the battle begins. Later
    players can see where earlier players deployed. The battle begins once everyone has deployed.
 3. **Give orders.** Click one of your units, in the unit table or on the map, to open its datasheet.
    Click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
@@ -30,8 +31,8 @@ turn at a time.
 ## What's in the game
 
 - **Eras**: each with its own terrain and its own armies, and units unique to each army. For now:
-  the Napoleonic Wars (French Empire, British Army) and the Second World War (US Infantry Division,
-  German Panzergrenadiers).
+  the Napoleonic Wars (French, British, Austrian and Prussian armies) and the Second World War (US,
+  German, British and Soviet divisions).
 - **Hex battlefields** in three sizes (16×12, 24×18 and 40×30) that scroll and zoom, with roads,
   woods, hills, villages or ruins, and water that affect movement, sight and cover.
 - **Elevation**: every hex has a height. Most units can climb or descend only one level per step

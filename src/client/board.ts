@@ -34,7 +34,7 @@ export interface BoardContext {
   /** 'orders': giving orders. 'deploy': turn 0, picking an army and placing units. 'review': read-only. */
   mode: 'orders' | 'review' | 'deploy';
   /** Turn 0 (deploy mode): the era's armies, the player's starting zone and the point limit. */
-  deploy?: { armies: Army[]; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment) => Promise<void> };
+  deploy?: { armies: Army[]; taken: Record<string, string>; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment) => Promise<void> };
   /** Report sections shown in the side panel and drawn on the map. */
   reports: { title: string; events: GameEvent[] }[];
   /** A notice above the board (HTML). */
@@ -583,7 +583,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       return `<div class="card deploy"><h3>Choose your army</h3>
         ${d.armies.map((a) => `<div class="army"><div><b>${esc(a.name)}</b><div class="small">${esc(a.description)}</div>
           <div class="small">${Object.values(a.units).map((u) => `${esc(u.name)} (${u.points})`).join(' · ')}</div></div>
-          <button data-action="army" data-army="${esc(a.id)}">Choose</button></div>`).join('')}</div>`;
+          ${d.taken[a.id] ? `<span class="small">Taken by ${esc(d.taken[a.id])}</span>` : `<button data-action="army" data-army="${esc(a.id)}">Choose</button>`}</div>`).join('')}</div>`;
     }
     const used = spent();
     const rows = Object.entries(army.units).map(([type, u]) => {

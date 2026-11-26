@@ -14,11 +14,12 @@ fog of war was dropped because it complicated play and invited players to dig in
 1. **Set up:** the first player chooses the era, the map size, the point limit and the number of players,
    and names every player. The game shuffles the players into a random turn order and shows the link for
    the first player.
-2. **Turn 0, deployment:** each player in turn order opens the link, picks one of the era's armies, then
+2. **Turn 0, deployment:** each player in turn order opens the link, picks one of the era's armies (each
+   player a different one, so an era allows as many players as it has armies, up to 4), then
    chooses units from that army and places them in their starting zone, within the point limit (the total
    may equal the limit). Earlier players' units are visible. When the last player has deployed, round 1
    begins with the first player. Starting zones are strips along the edges, by turn order: west, east,
-   north, south. Units face the centre of the map when placed.
+   north, south. Units face the centre of the map when placed, and can be turned from round 1.
 3. **Each turn:**
    - The player opens the link. They see the battlefield and a report of every turn since they last moved,
      and press "Play <name>'s turn".

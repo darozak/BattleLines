@@ -1,7 +1,7 @@
 // Game lifecycle without a server: set up → turn 0 (each player deploys) → rounds of turns → game
 // over. Every turn produces a new link (see link.ts) that the player sends to the next player.
 // Nothing is hidden: every player sees the whole battlefield.
-import { createSetupState, resolveDeployment, ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, MAX_PLAYERS, type Deployment } from './setup.js';
+import { createSetupState, resolveDeployment, ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, type Deployment } from './setup.js';
 import { resolvePlayerTurn } from './engine.js';
 import { decodeFragment, encodeFragment, LinkError, LINK_VERSION, sha256, toB64u } from './link.js';
 import type { Facing, GameEvent, GameResult, GameState, HexKey, PlayerOrders } from './types.js';
@@ -147,7 +147,8 @@ export function createGame(g: NewGame): Game {
   if (!MAP_SIZES[g.size]) throw new LinkError('Choose a map size.');
   if (!POINT_LIMITS.includes(g.points)) throw new LinkError('Choose a point limit.');
   const names = g.players.map((n, i) => n.trim() || `Player ${i + 1}`);
-  if (names.length < MIN_PLAYERS || names.length > MAX_PLAYERS) throw new LinkError(`A game is for ${MIN_PLAYERS}–${MAX_PLAYERS} players.`);
+  const most = maxPlayers(ERAS[g.era]);
+  if (names.length < MIN_PLAYERS || names.length > most) throw new LinkError(`A game in this era is for ${MIN_PLAYERS}–${most} players: each needs an army of their own.`);
   const link: GameLink = {
     v: LINK_VERSION,
     id: toB64u(globalThis.crypto.getRandomValues(new Uint8Array(9))),

@@ -16,10 +16,11 @@ const newGame = (players: number, era = 'ww2', size = 'small', points = 150) =>
 /** The current player's deployment: the first army, cheapest units first, until the points run out. */
 function autoDeploy(state: GameState) {
   const me = state.players[state.current].id;
-  const army = ERAS[state.era].armies[state.current % 2];
+  const taken = new Set(Object.values(state.armies));
+  const army = ERAS[state.era].armies.find((a) => !taken.has(a.id))!;
   const types = Object.entries(army.units).sort((a, b) => a[1].points - b[1].points);
-  const taken = new Set(state.units.map((u) => u.hex));
-  const free = zoneOf(state, me).filter((h) => !taken.has(h) && !terrainAt(state.map, h).impassable);
+  const occupied = new Set(state.units.map((u) => u.hex));
+  const free = zoneOf(state, me).filter((h) => !occupied.has(h) && !terrainAt(state.map, h).impassable);
   const units: { type: string; hex: string }[] = [];
   let spent = 0;
   for (const hex of free) {
@@ -73,6 +74,7 @@ test('create: setup choices are kept, the players are shuffled, turn 0 starts', 
   const firsts = new Set(Array.from({ length: 60 }, () => newGame(3).link.players[0]));
   assert.equal(firsts.size, 3);
   assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 150, players: ['Solo'] }), /2–4 players/);
+  assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 150, players: ['A', 'B', 'C', 'D', 'E'] }), /2–4 players/);
   assert.throws(() => createGame({ gameName: 'x', era: 'stone age', size: 'small', points: 150, players: ['A', 'B'] }), /era/);
   assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 123, players: ['A', 'B'] }), /point limit/);
 });

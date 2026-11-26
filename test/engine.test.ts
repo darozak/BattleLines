@@ -281,7 +281,7 @@ const setup = (players = 2, era = 'napoleonic', size = 'small', points = 100) =>
 
 test('setup: each era has its own terrain and armies, and unit types are unique across the era', () => {
   for (const era of Object.values(ERAS)) {
-    assert.ok(era.armies.length >= 2);
+    assert.ok(era.armies.length >= 4, 'enough armies for four players, each with their own');
     const all = era.armies.flatMap((a) => Object.keys(a.units));
     assert.equal(new Set(all).size, all.length, 'unit ids are unique within the era');
     assert.ok(Object.values(eraDatasheets(era)).every((u) => u.points > 0 && u.climb >= 1));
@@ -340,7 +340,8 @@ test('deployment: players deploy in turn, then round 1 begins with the first pla
   assert.throws(() => resolvePlayerTurn(s, {}), /still deploying/);
   s = resolveDeployment(s, { army: 'german', units: [{ type: 'german.panzer', hex: '15,5' }] }).state;
   assert.throws(() => resolveDeployment(s, { army: 'us', units: [{ type: 'us.rifles', hex: '0,4' }] }), /starting zone/, 'player 3 deploys on the north edge');
-  s = resolveDeployment(s, { army: 'us', units: [{ type: 'us.recon', hex: '6,0' }] }).state;
+  assert.throws(() => resolveDeployment(s, { army: 'us', units: [{ type: 'us.recon', hex: '6,0' }] }), /already been chosen/, 'each player picks a different army');
+  s = resolveDeployment(s, { army: 'soviet', units: [{ type: 'soviet.scouts', hex: '6,0' }] }).state;
   assert.equal(s.phase, 'battle');
   assert.equal(s.turn, 1);
   assert.equal(s.current, 0);
