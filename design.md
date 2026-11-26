@@ -27,10 +27,15 @@ fog of war was dropped because it complicated play and invited players to dig in
 ## The Link
 
 ```
-https://<site>/#<base64url(deflate(JSON))>
+https://<site>/#Round3-Bob/<base64url(deflate(JSON))>
 ```
 
 Everything is after `#`, which browsers never send to the web server, so the host never sees games.
+
+- **Label:** every link starts with a readable label showing the round and whose turn it is
+  (`Round3-Bob`), or `Final` once the battle is over. Names are reduced to plain letters and digits
+  (`Player2` if nothing is left). The label is only for people: the page ignores it when reading the
+  link, so editing it changes nothing.
 
 - **Contents:** link version, game id, name, scenario, seed, player names, the changing state (unit positions,
   facings and strengths; scores; round and whose turn it is), and the last round of player-turns (orders and

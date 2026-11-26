@@ -86,10 +86,23 @@ export interface Game {
   state: GameState;
 }
 
-export const encodeGame = (g: GameLink) => encodeFragment(g);
+/**
+ * A readable label at the start of every link, showing the round and whose turn it is,
+ * e.g. "Round3-Bob" or "Final". It is only for people: links are read without it.
+ */
+export function linkLabel(link: GameLink): string {
+  if (link.s.f) return 'Final';
+  const name = (link.players[link.s.c] ?? '').normalize('NFKD').replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
+  return `Round${link.s.t}-${name || `Player${link.s.c + 1}`}`;
+}
+
+/** The link fragment: "<label>/<compressed game>". */
+export const encodeGame = async (g: GameLink) => `${linkLabel(g)}/${await encodeFragment(g)}`;
 
 export async function readGame(hashOrUrl: string): Promise<Game> {
-  const link = await decodeFragment<GameLink>(hashOrUrl);
+  const fragment = hashOrUrl.includes('#') ? hashOrUrl.slice(hashOrUrl.indexOf('#') + 1) : hashOrUrl;
+  // Skip the readable label (base64url data never contains "/"). Links without a label still work.
+  const link = await decodeFragment<GameLink>(fragment.slice(fragment.lastIndexOf('/') + 1));
   if (link?.v !== LINK_VERSION) throw new LinkError(`This link is from a different version of Battle Lines (v${link?.v ?? '?'}).`);
   return { link, state: unpackState(link, link.s) };
 }

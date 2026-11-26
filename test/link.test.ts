@@ -4,6 +4,7 @@ import {
   createGame, endTurn, readGame, encodeGame, verifyReplay, packState, turnsSince, type Game,
 } from '../src/shared/game.js';
 import { encodeFragment, fromB64u, toB64u, LinkError } from '../src/shared/link.js';
+import { linkLabel } from '../src/shared/game.js';
 import { neighbors } from '../src/shared/hex.js';
 import { terrainAt } from '../src/shared/terrain.js';
 import type { GameState, PlayerOrders } from '../src/shared/types.js';
@@ -46,10 +47,29 @@ test('create: players in order, player 1 moves first, the link round-trips', asy
 
 test('damaged links give a clear error', async () => {
   const hash = await encodeGame(newGame(2).link);
-  await assert.rejects(readGame(hash.slice(0, 30)), /damaged or incomplete/);
+  await assert.rejects(readGame(hash.slice(0, hash.indexOf('/') + 30)), /damaged or incomplete/);
   await assert.rejects(readGame('#not*base64'), /unexpected characters/);
   await assert.rejects(readGame(await encodeFragment({ v: 1 })), /different version/);
   await assert.rejects(readGame(await encodeFragment({ ...newGame(2).link, scenario: 'nowhere' })), LinkError);
+});
+
+test('every link starts with a readable label: round and whose turn', async () => {
+  let g = newGame(2);
+  assert.match(await encodeGame(g.link), /^Round1-Alice\//);
+  g = await viaLink(endTurn(g, {}));
+  assert.match(await encodeGame(g.link), /^Round1-Bob\//);
+  g = await viaLink(endTurn(g, {}));
+  assert.match(await encodeGame(g.link), /^Round2-Alice\//);
+  // Names are reduced to plain letters and digits; an empty result falls back to the player number.
+  assert.equal(linkLabel(createGame({ gameName: 'x', scenario: 'crossroads', players: ['Zoë O\'Neil', '***'] }).link), 'Round1-ZoeONeil');
+  const odd = createGame({ gameName: 'x', scenario: 'crossroads', players: ['A', '***'] });
+  assert.equal(linkLabel(endTurn(odd, {}).link), 'Round1-Player2');
+  while (!g.state.finished) g = await viaLink(endTurn(g, {}));
+  assert.match(await encodeGame(g.link), /^Final\//);
+  // The label is ignored when reading: links without one, or with an edited one, still open the same game.
+  const data = (await encodeGame(g.link)).split('/')[1];
+  assert.deepEqual((await readGame(`#${data}`)).link, g.link);
+  assert.deepEqual((await readGame(`#Round1-Mallory/${data}`)).link, g.link);
 });
 
 test('turns pass between players; reports show what happened since your last turn', async () => {
