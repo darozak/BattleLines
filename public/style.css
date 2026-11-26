@@ -122,3 +122,13 @@ a.button { display: inline-block; text-decoration: none; padding: 10px 18px; bor
 a.button.secondary { background: #e7e0d0; color: var(--ink); }
 .players li .swatch { margin-right: 2px; }
 .side .share h3 { margin-top: 0; }
+
+/* Datasheet panel: floats over the map, so opening it never moves anything else (#20) */
+.mapframe { position: relative; }
+.datasheet-dock { position: absolute; top: 10px; right: 10px; width: 340px; max-height: calc(100% - 20px); overflow: auto;
+  z-index: 5; border-radius: 6px; box-shadow: 0 4px 18px #0003; overscroll-behavior: contain; }
+.datasheet-dock .card { margin: 0; }
+@media (max-width: 960px) {
+  .datasheet-dock { position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 45vh; z-index: 20; }
+}
+.side, .tablewrap, .log { overflow-anchor: none; }

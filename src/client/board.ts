@@ -149,7 +149,19 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const here = view.units.find((u) => u.hex === hex);
     selected = here && here.id !== selected ? here.id : null;
     render();
-    if (selected) document.querySelector(`tr[data-unit="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: 'nearest' });
+    if (selected) revealRow(selected);
+  }
+
+  /** Scroll a unit's row into view inside its own table box, without moving the page. */
+  function revealRow(id: UnitId): void {
+    const row = side.querySelector<HTMLElement>(`tr[data-unit="${CSS.escape(id)}"]`);
+    const box = row?.closest<HTMLElement>('.tablewrap');
+    if (!row || !box) return;
+    const header = box.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+    const r = row.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (r.top < b.top + header) box.scrollTop -= b.top + header - r.top;
+    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom;
   }
 
   /** Select a unit: zoom the map to it and open its datasheet. */
@@ -189,7 +201,18 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const wrap = document.getElementById('mapwrap');
     if (!wrap) return;
     const p = px(hex);
-    wrap.scrollTo({ left: p.x * zoom - wrap.clientWidth / 2, top: p.y * zoom - wrap.clientHeight / 2, behavior: smooth ? 'smooth' : 'auto' });
+    // Centre the hex in the part of the map the datasheet panel doesn't cover.
+    let viewW = wrap.clientWidth;
+    let viewH = wrap.clientHeight;
+    const dock = document.getElementById('datasheet');
+    if (dock && !dock.hidden) {
+      if (getComputedStyle(dock).position === 'absolute') viewW = Math.max(viewW / 3, viewW - dock.offsetWidth - 20);
+      else {
+        const overlap = wrap.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
+        if (overlap > 0) viewH = Math.max(viewH / 3, viewH - overlap);
+      }
+    }
+    wrap.scrollTo({ left: p.x * zoom - viewW / 2, top: p.y * zoom - viewH / 2, behavior: smooth ? 'smooth' : 'auto' });
   }
 
   function pulse(hex: HexKey | undefined): void {
@@ -347,13 +370,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
         <td>${u.strength}/${view.datasheets[u.type].strength}</td><td colspan="3">${esc(player(u.owner)?.name)}</td></tr>`);
     const ownTable = ctx.me ? `<h3>Your units <span class="small">(${mine.length})</span></h3>
-      ${mine.length ? `<div class="tablewrap"><table class="unittable">
+      ${mine.length ? `<div class="tablewrap" data-scroll="own"><table class="unittable">
         <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th>Mv</th><th>Sight</th><th>${ctx.mode === 'orders' ? 'Orders' : ''}</th></tr></thead>
         <tbody>${rows}</tbody></table></div>` : '<p class="small">No units remaining.</p>'}` : '';
     const otherTitle = `${ctx.me ? 'Enemy units' : 'All units'} <span class="small">(${seen.length})</span>`;
     return `<div class="card units">${ownTable}
       <h3 ${ctx.me ? 'style="margin-top:12px"' : ''}>${otherTitle}</h3>
-      ${seen.length ? `<div class="tablewrap"><table class="unittable">
+      ${seen.length ? `<div class="tablewrap" data-scroll="others"><table class="unittable">
         <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th colspan="3">Player</th></tr></thead>
         <tbody>${seen.join('')}</tbody></table></div>` : '<p class="small">No enemy units left.</p>'}
     </div>`;
@@ -423,13 +446,12 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
           ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''} — ${view.scores[p.id] ?? 0} pts
           ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : p.id === ctx.current ? '<span class="small">◀ to move</span>' : ''}</li>`).join('')}</ul>
         ${canOrder() ? `<div class="row submitrow"><button data-action="end-turn" ${busy ? 'disabled' : ''}>${busy ? 'Ending turn…' : 'End turn'}</button>
-          <span class="small">${moving} with orders, ${myUnits().length - moving} holding</span></div>` : ''}
+          <span class="small">${moving} with orders, ${myUnits().length - moving} holding${dirty ? '<br>Orders are sent when you end your turn.' : ''}</span></div>` : ''}
       </div>
-      ${renderDatasheet()}
       ${renderUnitTables()}
       <div class="card"><h3>Reports</h3>
         ${reports.length ? `<label class="small"><input type="checkbox" data-action="replay" ${showReplay ? 'checked' : ''}> show on map</label>
-          ${reports.map((r) => `<h4>${esc(r.title)}</h4><ol class="log">${r.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`).join('')}`
+          ${reports.map((r, i) => `<h4>${esc(r.title)}</h4><ol class="log" data-scroll="report-${i}">${r.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`).join('')}`
           : '<p class="small">Nothing to report.</p>'}</div>`;
   }
 
@@ -440,7 +462,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       const winners = (view.result?.winners || []).map((id) => player(id)?.name).join(' and ');
       parts.push(`<div class="banner ok">The battle is over. ${esc(view.result?.reason)} ${winners ? `Victory: ${esc(winners)}.` : ''}</div>`);
     } else if (ctx.me && !myUnits().length) parts.push('<div class="banner warn">Your army has been destroyed.</div>');
-    else if (dirty) parts.push('<div class="banner warn">Your orders are not sent until you end your turn.</div>');
     return parts.join('');
   }
 
@@ -457,7 +478,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <button class="secondary small-btn" data-zoom="fit">Fit map</button>
       <span class="small hint-inline">Scroll or drag to pan · click a unit for its datasheet</span>
     </div>
-    <div class="mapwrap" id="mapwrap"></div>
+    <div class="mapframe">
+      <div class="mapwrap" id="mapwrap"></div>
+      <div class="datasheet-dock" id="datasheet" hidden></div>
+    </div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
       <span>◌ objective</span><span>dashed outline = planned move</span></div>
   </div>
@@ -465,6 +489,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 </div>`;
   const wrap = document.getElementById('mapwrap')!;
   const side = document.getElementById('side')!;
+  const dock = document.getElementById('datasheet')!;
 
   // Click on the map (ignoring the end of a mouse drag; touch screens scroll natively).
   let drag: { x: number; y: number; left: number; top: number; moved: boolean } | null = null;
@@ -495,7 +520,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     else if (z === 'fit') zoomToFit();
   });
 
-  side.addEventListener('click', (ev) => {
+  const onPanelClick = (ev: Event) => {
     const target = ev.target as Element;
     const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
     if (action === 'end-turn') return void endTurn();
@@ -512,19 +537,36 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (action === 'face-auto' && selected) { orders[selected] = { path: pathOf(selected) }; dirty = true; return render(); }
     const row = target.closest<HTMLElement>('tr[data-unit]');
     if (row) focusUnit(row.dataset.unit!);
-  });
+  };
+  side.addEventListener('click', onPanelClick);
+  dock.addEventListener('click', onPanelClick);
   side.addEventListener('change', (ev) => {
     const input = ev.target as HTMLInputElement;
     if (input.dataset.action === 'replay') { showReplay = input.checked; renderMap(); }
   });
   window.onbeforeunload = (e) => { if (dirty) e.preventDefault(); };
 
+  let dockUnit: UnitId | null = null;
+
   function render(): void {
+    // Nothing here may move the page: remember every scroll position and put it back.
+    const winX = window.scrollX;
+    const winY = window.scrollY;
+    const sideTop = side.scrollTop;
+    const scrolls = new Map([...side.querySelectorAll<HTMLElement>('[data-scroll]')].map((el) => [el.dataset.scroll!, el.scrollTop]));
+    const dockTop = dock.scrollTop;
+
     document.getElementById('banner')!.innerHTML = renderBanner();
     renderMap();
-    const scrolls = [...side.querySelectorAll('.tablewrap, .log')].map((el) => el.scrollTop);
     side.innerHTML = renderSide();
-    [...side.querySelectorAll('.tablewrap, .log')].forEach((el, i) => { el.scrollTop = scrolls[i] ?? 0; });
+    side.querySelectorAll<HTMLElement>('[data-scroll]').forEach((el) => { el.scrollTop = scrolls.get(el.dataset.scroll!) ?? 0; });
+    side.scrollTop = sideTop;
+    const sheet = renderDatasheet();
+    dock.innerHTML = sheet;
+    dock.hidden = !sheet;
+    dock.scrollTop = selected === dockUnit ? dockTop : 0;
+    dockUnit = selected;
+    if (window.scrollX !== winX || window.scrollY !== winY) window.scrollTo(winX, winY);
     ctx.afterRender?.(app);
   }
 
