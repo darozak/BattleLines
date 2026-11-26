@@ -170,3 +170,12 @@ table.roster button { padding: 3px 8px; font-size: 12px; }
 ol.order { padding-left: 22px; } ol.order li { margin: 4px 0; }
 table.roster td, table.roster th { padding: 4px 4px; }
 table.roster td:nth-child(2) { white-space: normal; }
+
+/* Roads, rivers and bridges are lines (#24) */
+svg .river { fill: none; stroke: #3f86c4; stroke-width: 5; stroke-linecap: round; pointer-events: none; }
+svg .road { fill: none; stroke: #9b7b47; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: none; pointer-events: none; opacity: .9; }
+svg .bridge { fill: none; stroke: #4a3a28; stroke-width: 10; stroke-linecap: butt; pointer-events: none; }
+.legend i.line-key { width: 16px; height: 0; border: 0; }
+.legend i.road-key { border-top: 3px solid #9b7b47; }
+.legend i.river-key { border-top: 4px solid #3f86c4; }
+.legend i.bridge-key { border-top: 6px solid #4a3a28; }

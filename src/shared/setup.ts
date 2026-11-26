@@ -1,8 +1,8 @@
 // Game setup: eras (each with its own terrain, armies and units), map sizes, point limits,
 // starting zones, and turn 0, when each player in turn picks an army and places units.
 // The eras, armies and numbers here are PLACEHOLDERS until the rules and datasheets are written.
-import { key, neighbors, line, facingToward, distance } from './hex.js';
-import { TERRAIN } from './terrain.js';
+import { key, neighbors, facingToward, distance, inBounds, FACING_ANGLES } from './hex.js';
+import { TERRAIN, edgeKey } from './terrain.js';
 import { createRng } from './rng.js';
 import type { Datasheet, DeployEvent, Facing, GameMap, GameState, HexKey, PlayerId, TerrainType, Unit } from './types.js';
 
@@ -172,38 +172,27 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
     terrain[r * cols + c] = t;
   };
   const at = (hex: HexKey) => { const [c, r] = hex.split(',').map(Number); return terrain[r * cols + c]; };
-
-  // A fordable river winds from the north edge to the south edge, on one side of the centre so it
-  // crosses the east-west road at a bridge instead of running under the north-south road.
-  const river: HexKey[] = [];
-  const mid = Math.floor(cols / 2);
-  const [lo, hi] = rng.int(2) ? [2, mid - 3] : [mid + 2, cols - 3];
-  let col = lo + rng.int(Math.max(1, hi - lo + 1));
-  let from = key(col, 0);
-  for (let r = 3; ; r += 3) {
-    col = Math.min(hi, Math.max(lo, col + rng.int(5) - 2));
-    const to = key(col, Math.min(r, rows - 1));
-    for (const h of line(from, to)) if (!river.includes(h)) river.push(h);
-    from = to;
-    if (r >= rows - 1) break;
-  }
-  for (const h of river) set(h, 'river');
-
+  const inMap = (h: HexKey) => inBounds(h, cols, rows);
   const scale = (cols * rows) / (16 * 12);
+
+  // ---- rivers: meandering lines along hex edges, with branching tributaries
+  const rivers = riverNetwork(cols, rows, rng, Math.max(1, Math.round(scale * 0.7)));
+  const riverside = [...new Set(rivers.flatMap((k) => k.split('|')))];
+
+  // ---- terrain clusters (marshes grow beside the rivers)
   for (const [type, clusters, hexes] of era.terrain) {
     for (let i = 0; i < Math.max(1, Math.round(clusters * scale)); i++) {
-      // Marshes grow out from the river; everything else starts anywhere.
-      let frontier = type === 'marsh' ? neighbors(rng.pick(river), cols, rows) : [key(rng.int(cols), rng.int(rows))];
+      let frontier = [type === 'marsh' && riverside.length ? rng.pick(riverside) : key(rng.int(cols), rng.int(rows))];
       for (let j = 0; j < hexes && frontier.length; j++) {
         const h = rng.pick(frontier);
-        if (at(h) !== 'river') set(h, type);
+        set(h, type);
         frontier = frontier.concat(neighbors(h, cols, rows));
       }
     }
   }
   // The heart of a forest (a forest hex surrounded by forest) is dense.
   const forest = (t: TerrainType) => t === 'light_forest' || t === 'dense_forest';
-  const hearts = [];
+  const hearts: HexKey[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const h = key(c, r);
@@ -211,14 +200,43 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
     }
   }
   for (const h of hearts) set(h, 'dense_forest');
-  // A road from west to east and one from north to south, crossing near the centre (and the
-  // river, by bridge).
-  for (const h of line(key(0, Math.floor(rows / 2)), key(cols - 1, Math.floor(rows / 2) - 1))) set(h, 'road');
-  for (const h of line(key(Math.floor(cols / 2) - 1, 0), key(Math.floor(cols / 2), rows - 1))) set(h, 'road');
   // Nobody should start in a lake or have an objective in one.
-  for (const h of protectedHexes) {
-    const [c, r] = h.split(',').map(Number);
-    if (TERRAIN[terrain[r * cols + c]].impassable) set(h, 'open');
+  for (const h of protectedHexes) if (TERRAIN[at(h)].impassable) set(h, 'open');
+
+  // ---- roads: meandering lines from hex centre to hex centre, branching to villages and ruins
+  const roads = new Set<string>();
+  const onRoad: HexKey[] = [];
+  /** Wander from `from` towards `to`, avoiding lakes; returns the hexes visited. */
+  const wander = (from: HexKey, to: HexKey, maxSteps: number): HexKey[] => {
+    const path = [from];
+    let cur = from;
+    for (let i = 0; i < maxSteps && cur !== to; i++) {
+      const options = neighbors(cur, cols, rows).filter((n) => !TERRAIN[at(n)].impassable && !path.includes(n));
+      if (!options.length) break;
+      // One random draw per option, then sort: never draw inside a sort comparator, or the number of
+      // draws depends on the JavaScript engine's sort and different browsers would build different maps.
+      const scored = options.map((n) => ({ n, score: distance(n, to) + rng.next() * 1.6 }));
+      scored.sort((x, y) => x.score - y.score || x.n.localeCompare(y.n));
+      cur = scored[0].n;
+      path.push(cur);
+    }
+    return path;
+  };
+  const lay = (path: HexKey[]) => {
+    for (let i = 1; i < path.length; i++) roads.add(edgeKey(path[i - 1], path[i]));
+    for (const h of path) if (!onRoad.includes(h)) onRoad.push(h);
+  };
+  const passableOnEdge = (pick: () => HexKey) => { for (let i = 0; i < 20; i++) { const h = pick(); if (!TERRAIN[at(h)].impassable) return h; } return pick(); };
+  const mid = (n: number) => Math.floor(n / 4) + rng.int(Math.max(1, Math.floor(n / 2)));
+  lay(wander(passableOnEdge(() => key(0, mid(rows))), passableOnEdge(() => key(cols - 1, mid(rows))), cols * 3));
+  lay(wander(passableOnEdge(() => key(mid(cols), 0)), passableOnEdge(() => key(mid(cols), rows - 1)), rows * 3));
+  // Branches: from somewhere on the network to a village, ruins, or a point on the map.
+  const destinations = terrain.map((t, i) => [t, key(i % cols, Math.floor(i / cols))] as const)
+    .filter(([t]) => t === 'village' || t === 'ruins').map(([, h]) => h);
+  for (let i = 0; i < Math.max(2, Math.round(scale * 2)); i++) {
+    const to = destinations.length && rng.int(3) ? rng.pick(destinations) : key(rng.int(cols), rng.int(rows));
+    const from = [...onRoad].sort((x, y) => distance(x, to) - distance(y, to))[0];
+    if (from && from !== to && !TERRAIN[at(to)].impassable) lay(wander(from, to, Math.max(cols, rows)));
   }
 
   // Elevation (PLACEHOLDER shape): a few rises, each sloping down one level every two hexes, so
@@ -232,10 +250,104 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
       const h = key(c, r);
       const i = r * cols + c;
       const base = Math.max(0, ...peaks.map((p) => p.height - Math.floor(distance(h, p.hex) / 2)));
-      elevation[i] = terrain[i] === 'water' ? 0 : river.includes(h) ? Math.max(0, base - 1) : base + (terrain[i] === 'hills' ? 1 : 0);
+      elevation[i] = terrain[i] === 'water' ? 0 : base + (terrain[i] === 'hills' ? 1 : 0);
     }
   }
-  return { cols, rows, terrain, elevation };
+  void inMap;
+  return { cols, rows, terrain, elevation, roads: [...roads].sort(), rivers };
+}
+
+// ---------------------------------------------------------------- rivers along hex edges
+
+/**
+ * A river from the north edge to the south edge, meandering along hex edges, plus `branches`
+ * tributaries that wander east or west from it. Walks the graph of hex corners: each step follows
+ * one hex edge. Returns the edges as "a|b" keys of the two hexes they separate (edges on the map's
+ * border, with a hex on one side only, are left out).
+ */
+function riverNetwork(cols: number, rows: number, rng: ReturnType<typeof createRng>, branches: number): string[] {
+  // Corners sit on a whole-number grid: a hex at (col, row) has its centre at X = 2·col + (row odd),
+  // Y = 3·row, and its corners at these offsets (pointy-top, clockwise from the top-right).
+  // Integers keep the river exactly the same in every browser (no floating-point trigonometry).
+  // x and y are the true positions (hex radius 1), used to steer the walk.
+  type Corner = { x: number; y: number; links: { to: string; hexes: HexKey[] }[] };
+  const OFFSETS: Record<number, [number, number]> = { [-90]: [0, -2], [-30]: [1, -1], 30: [1, 1], 90: [0, 2], 150: [-1, 1], 210: [-1, -1] };
+  const corners = new Map<string, Corner>();
+  const cornerOf = (hex: HexKey, deg: number) => {
+    const { col, row } = { col: Number(hex.split(',')[0]), row: Number(hex.split(',')[1]) };
+    const [dx, dy] = OFFSETS[((deg + 90) % 360 + 360) % 360 - 90];
+    const X = 2 * col + (row & 1) + dx;
+    const Y = 3 * row + dy;
+    const k = `${X},${Y}`;
+    if (!corners.has(k)) corners.set(k, { x: (X * Math.sqrt(3)) / 2, y: Y / 2, links: [] });
+    return k;
+  };
+  const seen = new Set<string>();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const h = key(c, r);
+      neighbors(h).forEach((n, dir) => {
+        const c1 = cornerOf(h, FACING_ANGLES[dir] - 30);
+        const c2 = cornerOf(h, FACING_ANGLES[dir] + 30);
+        const edge = [c1, c2].sort().join('~');
+        const hexes = inBounds(n, cols, rows) ? [h, n] : [h];
+        if (seen.has(edge)) {
+          // Second time from the other side: the edge already links the corners.
+          return;
+        }
+        seen.add(edge);
+        corners.get(c1)!.links.push({ to: c2, hexes });
+        corners.get(c2)!.links.push({ to: c1, hexes });
+      });
+    }
+  }
+  const all = [...corners.values()];
+  const maxY = Math.max(...all.map((c) => c.y));
+  const minX = Math.min(...all.map((c) => c.x));
+  const maxX = Math.max(...all.map((c) => c.x));
+  const edges = new Set<string>();
+  const visited = new Set<string>();
+
+  /** Walk from a corner, scoring each step by `pull`, until `done` or stuck. Returns the corners. */
+  const walk = (start: string, pull: (from: Corner, to: Corner) => number, done: (c: Corner) => boolean, maxSteps: number) => {
+    const path = [start];
+    visited.add(start);
+    let cur = start;
+    for (let i = 0; i < maxSteps && !done(corners.get(cur)!); i++) {
+      const here = corners.get(cur)!;
+      const options = here.links.filter((l) => l.hexes.length === 2 && !visited.has(l.to));
+      if (!options.length) break;
+      const best = options.map((l) => ({ l, score: pull(here, corners.get(l.to)!) + rng.next() * 1.2 }))
+        .sort((a, b) => b.score - a.score || a.l.to.localeCompare(b.l.to))[0].l;
+      edges.add(edgeKey(best.hexes[0], best.hexes[1]));
+      cur = best.to;
+      visited.add(cur);
+      path.push(cur);
+    }
+    return path;
+  };
+
+  // The main river: from a corner on the north edge, in the middle half, heading south.
+  // Start between two hexes of the top row (where an edge leads into the map), in the middle half.
+  const minY = Math.min(...all.map((x) => x.y));
+  const tops = all.filter((c) => c.y < minY + 0.6 && c.links.some((l) => l.hexes.length === 2)
+    && c.x > minX + (maxX - minX) / 4 && c.x < maxX - (maxX - minX) / 4);
+  const startTop = rng.pick(tops.length ? tops : all);
+  const startKey = [...corners.entries()].find(([, c]) => c === startTop)![0];
+  // A gentle sideways drift that changes now and then makes the river meander.
+  let drift = rng.next() - 0.5;
+  const main = walk(startKey, (from, to) => {
+    if (rng.next() < 0.15) drift = rng.next() - 0.5;
+    return (to.y - from.y) * 1.2 + (to.x - from.x) * drift;
+  }, (c) => c.y >= maxY - 1.6, rows * 6);
+
+  // Tributaries: from a point along the main river, wandering east or west.
+  for (let i = 0; i < branches && main.length > 6; i++) {
+    const from = main[Math.floor(main.length / 4) + rng.int(Math.max(1, Math.floor(main.length / 2)))];
+    const east = rng.int(2) === 1;
+    walk(from, (a, b) => (b.x - a.x) * (east ? 1 : -1) + (b.y - a.y) * (rng.next() - 0.5), (c) => c.x <= minX + 1 || c.x >= maxX - 1, cols * 2);
+  }
+  return [...edges].sort();
 }
 
 // ---------------------------------------------------------------- the game at turn 0

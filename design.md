@@ -70,15 +70,21 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   | Terrain | Move cost | Cover | Blocks sight | Where it appears |
   |---|---|---|---|---|
   | Open | 1 | 0 | no | everywhere else |
-  | Road | 1 | 0 | no | west–east and north–south across the map; bridges the river |
   | Light forest | 2 | +1 | no | forest clusters |
   | Dense forest | 3 | +2 | yes | the heart of a forest (a forest hex surrounded by forest) |
   | Hills | 2 | +1 | yes | clusters, one level above their surroundings; +2 sight |
   | Ruins | 2 | +2 | yes | both eras |
   | Village | 1 | +2 | yes | Napoleonic era |
-  | Marsh | 3 | 0 | no | grows out from the river |
-  | River (ford) | 3 | −1 (exposed) | no | one per map, north edge to south edge, one level below its banks |
+  | Marsh | 3 | 0 | no | grows beside rivers |
   | Lake | impassable | – | no | small clusters |
+
+- **Roads, rivers and bridges are lines** (placeholder values):
+  - **Roads** join hex centres: a meandering west–east and north–south road, with branches to villages, ruins
+    and other points. A step **along** a road costs 1, whatever the terrain.
+  - **Rivers** run along hex edges: a meandering river from the north edge to the south edge, with branching
+    tributaries. **Crossing** one costs +2 movement; attacking across one is −2 attack.
+  - **Bridges** are where a road crosses a river: no extra movement, and −1 to attack across.
+  - The map stores both as pairs of adjacent hexes (`roads`, `rivers`); a pair in both lists is a bridge.
 
 - Every unit faces one of the six hexsides.
 - Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.

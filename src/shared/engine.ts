@@ -4,7 +4,7 @@
 //   resolvePlayerTurn(state, orders) -> { state, events }
 // The movement/combat/scoring numbers below are PLACEHOLDERS until the rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
-import { terrainAt, elevationAt } from './terrain.js';
+import { terrainAt, elevationAt, stepCost, hasRiver, hasBridge, RIVER_ATTACK, BRIDGE_ATTACK } from './terrain.js';
 import type {
   AttackEvent, Datasheet, Facing, GameEvent, GameState, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
@@ -64,7 +64,7 @@ export function validateOrders(state: GameState, playerId: PlayerId, orders: unk
       }
       const t = terrainAt(state.map, h);
       if (t.impassable) { errors.push(`${unit.name}: cannot enter ${t.name}`); ok = false; break; }
-      mp -= t.cost;
+      mp -= stepCost(state.map, prev, h); // roads, rivers and bridges change the cost of a step
       if (mp < 0) { errors.push(`${unit.name}: not enough movement`); ok = false; break; }
       prev = h;
     }
@@ -148,9 +148,9 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
     }
     for (const m of accepted) {
       const hex = m.path.shift()!;
+      m.mp -= stepCost(state.map, m.unit.hex, hex);
       m.unit.facing = facingToward(m.unit.hex, hex);
       m.unit.hex = hex;
-      m.mp -= terrainAt(state.map, hex).cost;
       m.traversed.push(hex);
     }
     // Contact: a moving unit halts when it becomes adjacent to a new enemy.
@@ -224,6 +224,8 @@ export function combatTally(state: GameState, attacker: Unit, attackerHex: HexKe
     { side: 'attack', label: `${attacker.name} strength`, value: attacker.strength },
   ];
   if (ARC_BONUS[arc]) tally.push({ side: 'attack', label: `${arc} attack`, value: ARC_BONUS[arc] });
+  if (hasBridge(state.map, attackerHex, target.hex)) tally.push({ side: 'attack', label: 'across a bridge', value: BRIDGE_ATTACK });
+  else if (hasRiver(state.map, attackerHex, target.hex)) tally.push({ side: 'attack', label: 'across a river', value: RIVER_ATTACK });
   const height = elevationAt(state.map, attackerHex) - elevationAt(state.map, target.hex);
   if (height > 0) tally.push({ side: 'attack', label: `higher ground (${height} above)`, value: height });
   if (height < 0) tally.push({ side: 'attack', label: `attacking uphill (${-height} below)`, value: height });

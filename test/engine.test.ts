@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES } from '../src/shared/hex.js';
+import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
+import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
 import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
 import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE } from '../src/shared/engine.js';
 import type { AttackEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
@@ -21,6 +22,8 @@ function openState(players = 2): GameState {
   const s = createSetupState('ww2', 'small', 150, Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
   s.map.terrain.fill('open');
   s.map.elevation.fill(0);
+  s.map.roads = [];
+  s.map.rivers = [];
   s.datasheets = TEST_UNITS;
   s.phase = 'battle';
   s.turn = 1;
@@ -238,13 +241,9 @@ test('combat: no dice, hits = attack - defence, every modifier on the tally', ()
   s.map.terrain[5 * 16 + 6] = 'light_forest';
   const inWoods = combatTally(s, s.units[0], '5,5', s.units[1]);
   assert.ok(inWoods.tally.some((l) => l.side === 'defence' && l.label === 'cover (light forest)' && l.value === 1));
-  // Dense forest gives more cover; a unit standing in a river is exposed.
+  // Dense forest gives more cover.
   s.map.terrain[5 * 16 + 6] = 'dense_forest';
   assert.equal(combatTally(s, s.units[0], '5,5', s.units[1]).defence, BASE_DEFENCE + 2);
-  s.map.terrain[5 * 16 + 6] = 'river';
-  const inRiver = combatTally(s, s.units[0], '5,5', s.units[1]);
-  assert.ok(inRiver.tally.some((l) => l.label === 'exposed (river (ford))' && l.value === -1));
-  assert.equal(inRiver.defence, BASE_DEFENCE - 1);
   assert.equal(inWoods.hits, 4);
 });
 
@@ -315,33 +314,85 @@ test('elevation: generated with the map, the same for the same seed, hills highe
   a.terrain.forEach((t, i) => { if (t === 'water') assert.equal(a.elevation[i], 0); });
 });
 
-test('terrain: every map has a river, marshes by it, light and dense forest, ruins and roads', () => {
+test('roads: following one costs 1 a step whatever the terrain', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '2,5'), unit('z', 'p1', 'infantry', '15,11')]; // move 3
+  for (const h of ['3,5', '4,5', '5,5']) s.map.terrain[Number(h.split(',')[1]) * 16 + Number(h.split(',')[0])] = 'dense_forest';
+  const path = ['3,5', '4,5', '5,5'];
+  assert.equal(validateOrders(s, 'p0', { a: { path } }).ok, false, 'three hexes of dense forest: 9 points');
+  s.map.roads = [edgeKey('2,5', '3,5'), edgeKey('3,5', '4,5'), edgeKey('4,5', '5,5')];
+  assert.equal(validateOrders(s, 'p0', { a: { path } }).ok, true, 'along the road: 3 points');
+  assert.equal(play(s, 0, { a: { path } }).state.units[0].hex, '5,5');
+  assert.equal(stepCost(s.map, '5,5', '6,5'), 1, 'leaving the road: the terrain cost again (open)');
+});
+
+test('rivers: crossing costs extra and weakens attacks; a bridge removes the extra cost', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '4,5', { facing: 0 }), unit('b', 'p1', 'infantry', '6,5', { facing: 3 })];
+  s.map.rivers = [edgeKey('4,5', '5,5'), edgeKey('5,5', '6,5')];
+  assert.equal(stepCost(s.map, '4,5', '5,5'), 1 + RIVER_CROSSING_COST);
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5'] } }).ok, true, 'heavy (move 3) can ford: 3 points');
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5', '5,4'] } }).ok, false, 'no movement left after fording');
+  // Attacking across the river from 5,5 into 6,5.
+  const across = combatTally(s, { ...s.units[0], hex: '5,5' }, '5,5', s.units[1]);
+  assert.ok(across.tally.some((l) => l.label === 'across a river' && l.value === RIVER_ATTACK));
+  // A road over the river: a bridge. No extra movement; a smaller attack penalty.
+  s.map.roads = [edgeKey('4,5', '5,5'), edgeKey('5,5', '6,5')];
+  assert.ok(hasBridge(s.map, '5,5', '4,5'));
+  assert.equal(stepCost(s.map, '4,5', '5,5'), 1);
+  const bridge = combatTally(s, { ...s.units[0], hex: '5,5' }, '5,5', s.units[1]);
+  assert.ok(bridge.tally.some((l) => l.label === 'across a bridge' && l.value === BRIDGE_ATTACK));
+  assert.ok(!bridge.tally.some((l) => l.label === 'across a river'));
+});
+
+test('terrain: rivers along hex edges, branching roads between hex centres, bridges where they cross', () => {
+  let branchingRoads = 0;
   for (const era of ['napoleonic', 'ww2']) {
     for (const size of ['small', 'medium', 'large']) {
       for (const seed of [1, 2, 3]) {
         const m = createSetupState(era, size, 150, [{ id: 'p0', side: 0 }, { id: 'p1', side: 1 }], seed).map;
-        const at = (h: HexKey) => { const [c, r] = h.split(',').map(Number); return m.terrain[r * m.cols + c]; };
-        const all = (t: string) => m.terrain.map((x, i) => [x, `${i % m.cols},${Math.floor(i / m.cols)}`] as [string, string]).filter(([x]) => x === t).map(([, h]) => h);
         const label = `${era} ${size} ${seed}`;
-        // The river (with its bridges) links the north edge to the south edge.
-        const wet = new Set([...all('river'), ...all('road').filter((h) => neighbors(h, m.cols, m.rows).some((n) => at(n) === 'river'))]);
-        const north = [...wet].filter((h) => h.endsWith(',0'));
-        assert.ok(north.length, `${label}: river starts on the north edge`);
-        const seen = new Set(north);
-        const queue = [...north];
-        while (queue.length) for (const n of neighbors(queue.pop()!, m.cols, m.rows)) if (wet.has(n) && !seen.has(n)) { seen.add(n); queue.push(n); }
-        assert.ok([...seen].some((h) => h.endsWith(`,${m.rows - 1}`)), `${label}: river reaches the south edge`);
-        assert.ok(all('marsh').length > 0, `${label}: marsh`);
-        assert.ok(all('light_forest').length > 0, `${label}: light forest`);
-        assert.ok(all('ruins').length > 0, `${label}: ruins`);
-        assert.ok(all('road').length > 0, `${label}: roads`);
+        const all = (t: string) => m.terrain.map((x, i) => [x, `${i % m.cols},${Math.floor(i / m.cols)}`] as [string, string]).filter(([x]) => x === t).map(([, h]) => h);
+        const pairs = (keys: string[]) => keys.map((k) => k.split('|'));
+        for (const [a, b] of [...pairs(m.rivers), ...pairs(m.roads)]) {
+          assert.ok(inBounds(a, m.cols, m.rows) && inBounds(b, m.cols, m.rows) && distance(a, b) === 1, `${label}: ${a}|${b} joins neighbours`);
+        }
+        // The river is one continuous line from the north edge to the south edge: the hexes along it connect.
+        const riverside = new Set(pairs(m.rivers).flat());
+        const linked = (from: string[], set: Set<string>) => {
+          const seen = new Set(from);
+          const queue = [...from];
+          while (queue.length) for (const n of neighbors(queue.pop()!, m.cols, m.rows)) if (set.has(n) && !seen.has(n)) { seen.add(n); queue.push(n); }
+          return seen;
+        };
+        const fromNorth = linked([...riverside].filter((h) => h.endsWith(',0')), riverside);
+        assert.ok(fromNorth.size > 0, `${label}: river starts at the north edge`);
+        assert.ok([...fromNorth].some((h) => Number(h.split(',')[1]) >= m.rows - 2), `${label}: river reaches the south edge`);
+        // Roads link west to east and north to south.
+        const roadHexes = new Set(pairs(m.roads).flat());
+        const roadFrom = (start: string[]) => {
+          const adj = new Map<string, string[]>();
+          for (const [a, b] of pairs(m.roads)) { adj.set(a, [...(adj.get(a) ?? []), b]); adj.set(b, [...(adj.get(b) ?? []), a]); }
+          const seen = new Set(start);
+          const queue = [...start];
+          while (queue.length) for (const n of adj.get(queue.pop()!) ?? []) if (!seen.has(n)) { seen.add(n); queue.push(n); }
+          return { seen, adj };
+        };
+        const west = roadFrom([...roadHexes].filter((h) => h.startsWith('0,')));
+        assert.ok([...west.seen].some((h) => h.startsWith(`${m.cols - 1},`)), `${label}: a road runs west to east`);
+        assert.ok([...west.seen].some((h) => h.endsWith(',0')) && [...west.seen].some((h) => h.endsWith(`,${m.rows - 1}`)), `${label}: roads run north to south, joined up`);
+        if ([...west.adj.values()].some((n) => n.length >= 3)) branchingRoads++;
+        // Roads crossing rivers are bridges, and every map has at least one.
+        assert.ok(m.roads.some((k) => m.rivers.includes(k)), `${label}: a bridge`);
+        assert.ok(all('marsh').some((h) => riverside.has(h) || neighbors(h, m.cols, m.rows).some((n) => riverside.has(n))), `${label}: marsh by the river`);
+        assert.ok(all('light_forest').length > 0 && all('ruins').length > 0, `${label}: forest and ruins`);
         for (const h of all('dense_forest')) {
-          assert.ok(neighbors(h, m.cols, m.rows).every((n) => ['light_forest', 'dense_forest', 'road'].includes(at(n)) || /^(0|\d+),0$/.test(n)),
-            `${label}: dense forest ${h} sits inside a forest`);
+          assert.ok(neighbors(h, m.cols, m.rows).every((n) => all('light_forest').includes(n) || all('dense_forest').includes(n)), `${label}: dense forest ${h} sits inside a forest`);
         }
       }
     }
   }
+  assert.ok(branchingRoads >= 12, `roads branch on most maps (${branchingRoads} of 18)`);
 });
 
 // ---------------------------------------------------------------- setup and turn 0

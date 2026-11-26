@@ -2,7 +2,7 @@
 // orders, reports). Clicking a unit, in the table or on the map, zooms the map to it and opens
 // its datasheet; for the player's own units the datasheet has their move and facing orders.
 import { parse, neighbors, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
-import { TERRAIN } from '../shared/terrain.js';
+import { TERRAIN, stepCost } from '../shared/terrain.js';
 import type {
   AttackEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
@@ -95,7 +95,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const canOrder = () => ctx.mode === 'orders' && myUnits().length > 0;
   const ownUnit = (id: UnitId | null) => (id ? myUnits().find((u) => u.id === id) : undefined);
   const dsName = (type: string) => view.datasheets[type]?.name ?? type;
-  const pathCost = (path: HexKey[]) => path.reduce((s, h) => s + terrainAt(h).cost, 0);
+  /** Movement used by a path from `start` (roads, rivers and bridges change each step's cost). */
+  const pathCost = (start: HexKey, path: HexKey[]) => path.reduce((s, h, i) => s + stepCost(view.map, i ? path[i - 1] : start, h), 0);
   const pathOf = (id: UnitId): HexKey[] => orders[id]?.path ?? [];
   const hasOrders = (id: UnitId) => pathOf(id).length > 0 || orders[id]?.facing !== undefined || orders[id]?.target !== undefined;
   /** The orders as the rules engine takes them. */
@@ -137,10 +138,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   }
 
   // Cheapest paths from the end of a unit's current planned path, within its remaining movement.
-  function reachable(unit: OwnUnit): Map<HexKey, { cost: number; prev: HexKey }> {
+  /**
+   * Where a unit can go from the end of its planned path: `routes` holds every hex it can reach (for
+   * tracing a route back), `stops` the ones where it may end its move (#26: a route may pass through a
+   * friendly unit's hex without stopping there).
+   */
+  function reachable(unit: OwnUnit): { routes: Map<HexKey, { cost: number; prev: HexKey }>; stops: Set<HexKey> } {
     const path = pathOf(unit.id);
     const start = path.length ? path[path.length - 1] : unit.hex;
-    const budget = unit.move - pathCost(path);
+    const budget = unit.move - pathCost(unit.hex, path);
     const { cols, rows } = view.map;
     // Enemies block the way. Friendly units can be passed through, but a move can't end on one
     // that is staying put, or where another friendly unit plans to end its move (#23). A friendly
@@ -159,14 +165,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const t = terrainAt(n);
         if (t.impassable || blocked.has(n)) continue;
         if (Math.abs(elevationAt(n) - elevationAt(h)) > unit.climb) continue; // too steep for this unit
-        const c = best.get(h)!.cost + t.cost;
+        const c = best.get(h)!.cost + stepCost(view.map, h, n);
         if (c > budget) continue;
         if (!best.has(n) || c < best.get(n)!.cost) { best.set(n, { cost: c, prev: h }); queue.push(n); }
       }
     }
     best.delete(start);
-    for (const h of noStop) best.delete(h); // can pass through, but not stop there
-    return best;
+    const stops = new Set([...best.keys()].filter((h) => !noStop.has(h)));
+    return { routes: best, stops };
   }
 
   // ---------------------------------------------------------------- actions
@@ -179,10 +185,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         setPath(unit.id, path.slice(0, -1));
         return render();
       }
-      const reach = reachable(unit);
-      if (reach.has(hex)) {
+      const { routes, stops } = reachable(unit);
+      if (stops.has(hex)) {
         const steps: HexKey[] = [];
-        for (let h = hex; reach.has(h); h = reach.get(h)!.prev) steps.unshift(h);
+        for (let h = hex; routes.has(h); h = routes.get(h)!.prev) steps.unshift(h);
         setPath(unit.id, [...path, ...steps]);
         return render();
       }
@@ -328,13 +334,34 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         });
       }
     }
+    // Rivers run along hex edges; roads join hex centres; a road crossing a river is a bridge.
+    const edgeEnds = (k: string) => {
+      const [a, b] = k.split('|');
+      const dir = neighbors(a).indexOf(b);
+      const p = px(a);
+      const ang = FACING_ANGLES[dir];
+      const end = (deg: number) => `${(p.x + SIZE * Math.cos((deg * Math.PI) / 180)).toFixed(1)},${(p.y + SIZE * Math.sin((deg * Math.PI) / 180)).toFixed(1)}`;
+      return `${end(ang - 30)} ${end(ang + 30)}`;
+    };
+    const rivers = new Set(view.map.rivers);
+    for (const k of view.map.rivers) out.push(`<polyline class="river" points="${edgeEnds(k)}"/>`);
+    for (const k of view.map.roads) {
+      const [a, b] = k.split('|');
+      if (rivers.has(k)) {
+        const pa = px(a);
+        const pb = px(b);
+        const at = (f: number) => `${(pa.x + (pb.x - pa.x) * f).toFixed(1)},${(pa.y + (pb.y - pa.y) * f).toFixed(1)}`;
+        out.push(`<polyline class="bridge" points="${at(0.3)} ${at(0.7)}"/>`);
+      }
+    }
+    for (const k of view.map.roads) out.push(`<polyline class="road" points="${polyline(k.split('|'))}"/>`);
     for (const hex of view.objectives) {
       const p = px(hex);
       out.push(`<circle class="objective" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.8}"/>`);
     }
     const sel = ownUnit(selected);
     if (sel && canOrder()) {
-      for (const hex of reachable(sel).keys()) { const p = px(hex); out.push(`<polygon class="reach" points="${hexPoints(p.x, p.y)}"/>`); }
+      for (const hex of reachable(sel).stops) { const p = px(hex); out.push(`<polygon class="reach" points="${hexPoints(p.x, p.y)}"/>`); }
     }
     if (showReplay) {
       for (const e of reportEvents()) {
@@ -499,7 +526,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     let options = '';
     if (own && canOrder()) {
       const path = pathOf(own.id);
-      const used = pathCost(path);
+      const used = pathCost(own.hex, path);
       const end = plannedEnd(own);
       // Compass laid out like the hexsides: NW NE / W E / SW SE.
       const compass = ([2, 1, 3, 0, 4, 5] as Facing[]).map((f) => `<button class="face${end.facing === f ? ' on' : ''}${own.facing === f ? ' current' : ''}"
@@ -657,6 +684,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <div class="datasheet-dock" id="datasheet" hidden></div>
     </div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
+      <span><i class="line-key road-key"></i>road</span><span><i class="line-key river-key"></i>river</span><span><i class="line-key bridge-key"></i>bridge</span>
       <span>◌ objective</span><span>number = elevation (darker = lower)</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
   </div>
   <aside class="side" id="side"></aside>

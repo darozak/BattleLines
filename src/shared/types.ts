@@ -7,7 +7,7 @@ export type Facing = 0 | 1 | 2 | 3 | 4 | 5;
 export type PlayerId = string;
 export type UnitId = string;
 
-export type TerrainType = 'open' | 'road' | 'light_forest' | 'dense_forest' | 'hills' | 'ruins' | 'village' | 'marsh' | 'river' | 'water';
+export type TerrainType = 'open' | 'light_forest' | 'dense_forest' | 'hills' | 'ruins' | 'village' | 'marsh' | 'water';
 
 export interface Terrain {
   name: string;
@@ -40,6 +40,11 @@ export interface GameMap {
   terrain: TerrainType[];
   /** Row-major, like terrain: each hex's height, 0 and up. */
   elevation: number[];
+  /** Road segments, each joining the centres of two adjacent hexes ("a|b", see edgeKey in terrain.ts). */
+  roads: string[];
+  /** River stretches, each running along the edge between two adjacent hexes ("a|b"). Where a road
+   * segment crosses a river edge (the same key in both lists) there is a bridge. */
+  rivers: string[];
 }
 
 export interface Unit {
