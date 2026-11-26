@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES } from '../src/shared/hex.js';
 import { createInitialState } from '../src/shared/scenario.js';
-import { resolvePlayerTurn, validateOrders, boardView, canSee, turnSeed } from '../src/shared/engine.js';
+import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE } from '../src/shared/engine.js';
 import type { AttackEvent, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 function openState(players = 2): GameState {
@@ -117,8 +117,16 @@ test('resolution is deterministic: same state and orders give the same result', 
   const s = openState(4);
   const orders = { u1: { path: ['2,4', '3,4'] } };
   assert.deepEqual(resolvePlayerTurn(s, orders), resolvePlayerTurn(s, orders));
-  assert.notEqual(turnSeed(s), turnSeed({ ...s, current: 1 }), 'each player-turn gets its own dice');
-  assert.notEqual(turnSeed(s), turnSeed({ ...s, turn: 2 }));
+});
+
+test('two of your units wanting the same hex: the first in roster order goes, every time', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'infantry', '3,5'), unit('b', 'p0', 'infantry', '5,5'), unit('z', 'p1', 'infantry', '15,11')];
+  for (let i = 0; i < 3; i++) {
+    const { state } = play(s, 0, { a: { path: ['4,5'] }, b: { path: ['4,5'] } });
+    assert.equal(state.units.find((u) => u.id === 'a')!.hex, '4,5');
+    assert.equal(state.units.find((u) => u.id === 'b')!.hex, '5,5');
+  }
 });
 
 test('game ends after the last player of the final round', () => {
@@ -173,13 +181,49 @@ test('facing: moving units face their last step unless ordered otherwise', () =>
   assert.equal(validateOrders(s, 'p0', { a: { path: [], facing: 1 } }).ok, true);
 });
 
-test('facing: attacks report which arc they hit', () => {
+test('combat: no dice, hits = attack - defence, every modifier on the tally', () => {
   const s = openState();
   s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'scout', '6,5')]; // a is directly behind b
   const onB = play(s, 0, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(onB.arc, 'rear');
+  assert.deepEqual(onB.tally.map((l) => [l.side, l.label, l.value]), [
+    ['attack', 'A strength', 6], ['attack', 'rear attack', 2], ['defence', 'base defence', BASE_DEFENCE]]);
+  assert.equal(onB.attack, 8);
+  assert.equal(onB.defence, 3);
+  assert.equal(onB.hits, 5);
+  assert.equal(play(s, 0, {}).state.units.find((u) => u.id === 'b')!.strength, 0, 'scout destroyed');
+  // From b's side: a front attack on the heavy, in the open. 2 - 3 is below 0: no hits.
   const onA = play(s, 1, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(onA.arc, 'front');
+  assert.equal(onA.hits, 0);
+  // Cover adds to defence.
+  s.map.terrain[5 * 16 + 6] = 'woods';
+  const inWoods = combatTally(s, s.units[0], '5,5', s.units[1]);
+  assert.ok(inWoods.tally.some((l) => l.side === 'defence' && l.label === 'cover (woods)' && l.value === 1));
+  assert.equal(inWoods.hits, 4);
+});
+
+test('combat: an ordered target is attacked; otherwise the weakest adjacent enemy', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('weak', 'p1', 'scout', '6,5'), unit('strong', 'p1', 'infantry', '4,5')];
+  const target = (orders: PlayerOrders) => play(s, 0, orders).events.find((e): e is AttackEvent => e.type === 'attack')!.target;
+  assert.equal(target({}), 'weak');
+  assert.equal(target({ a: { path: [], target: 'strong' } }), 'strong');
+  assert.equal(target({ a: { path: [], target: 'nobody' } }), 'weak', 'invalid targets are dropped by validation');
+  assert.equal(validateOrders(s, 'p0', { a: { path: [], target: 'a' } }).ok, false, 'cannot target your own unit');
+});
+
+test('preview: exactly what ending the turn will do, and the options for each unit', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '3,5'), unit('weak', 'p1', 'scout', '6,5'), unit('strong', 'p1', 'infantry', '6,4')];
+  const orders = { a: { path: ['4,5', '5,5'] } };
+  const pv = previewTurn(s, orders);
+  assert.deepEqual(pv.events, play(s, 0, orders).events, 'the preview is the real result');
+  assert.equal(pv.endHex.a, '5,5');
+  const opts = attackOptions(s, 'a', pv.endHex.a);
+  assert.deepEqual(opts.map((o) => o.target.id), ['weak', 'strong']);
+  assert.ok(opts.every((o) => o.hits === o.attack - o.defence || (o.hits === 0 && o.attack < o.defence)));
+  assert.deepEqual(attackOptions(s, 'a', '1,1'), [], 'nothing in reach');
 });
 
 test('scenario units start facing the centre of the map', () => {

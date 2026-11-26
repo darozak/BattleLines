@@ -97,7 +97,7 @@ test('each player can check the others\' moves by replay; altered links are caug
   assert.equal(verifyReplay(tampered, remembered[g.state.current]), 'mismatch');
 });
 
-test('same link + same orders = same result (dice come from the embedded seed)', async () => {
+test('same link + same orders = same result (there are no dice)', async () => {
   const g = newGame(2);
   const a = await viaLink(g);
   const b = await viaLink(g);

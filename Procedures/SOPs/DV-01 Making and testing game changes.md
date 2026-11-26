@@ -26,9 +26,9 @@
 
    2. <a id="4.2"></a>The game is a static site. The whole game travels in a link, and every player sees the whole battlefield. Keep it that way: no server, no accounts, no hidden information, unless the project lead decides otherwise.
 
-   3. <a id="4.3"></a>The rules engine (`src/shared/engine.ts`) is pure and deterministic: the same position and the same orders always give the same result, because every dice roll comes from the seed in the link. Never use `Math.random`, the clock or anything else outside the game state in the engine.
+   3. <a id="4.3"></a>The rules engine (`src/shared/engine.ts`) is pure and deterministic: the same position and the same orders always give the same result. There are no dice: combat outcomes are a tally of modifiers, which the page previews to the player before they end their turn. Never use `Math.random`, the clock or anything else outside the game state in the engine.
 
-   4. <a id="4.4"></a>A change that alters how a turn plays out (the rules, a scenario, a datasheet, the map generator or the dice) or how a link is written changes the games already in progress, because their links are replayed by the new code. For such a change:
+   4. <a id="4.4"></a>A change that alters how a turn plays out (the rules, a scenario, a datasheet or the map generator) or how a link is written changes the games already in progress, because their links are replayed by the new code. For such a change:
 
       1. <a id="4.4.1"></a>say so in the issue and when reporting the change to the project lead;
 

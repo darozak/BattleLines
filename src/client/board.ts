@@ -4,14 +4,15 @@
 import { parse, neighbors, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN } from '../shared/terrain.js';
 import type {
-  Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
+  AttackEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
+import type { AttackOption, TurnPreview } from '../shared/engine.js';
 import { esc } from './util.js';
 
 type OwnUnit = Extract<VisibleUnit, { own: true }>;
 type EnemyUnit = Extract<VisibleUnit, { own: false }>;
 /** A unit's planned order: a move path and, optionally, the facing to end with. */
-interface Plan { path: HexKey[]; facing?: Facing }
+interface Plan { path: HexKey[]; facing?: Facing; target?: UnitId }
 
 export const SIDE_COLORS = ['#2b6cb0', '#c53030', '#2f855a', '#b7791f'];
 export const SIDE_NAMES = ['Blue', 'Red', 'Green', 'Gold'];
@@ -37,6 +38,10 @@ export interface BoardContext {
   /** Extra card at the top of the side panel (HTML), e.g. the "send this link" panel. */
   topCard?: string;
   onEndTurn?: (orders: PlayerOrders) => Promise<void>;
+  /** Exactly what ending the turn with these orders would do (orders mode). */
+  preview?: (orders: PlayerOrders) => TurnPreview;
+  /** The enemies a unit could attack from a hex, each with its tally sheet. */
+  attackOptions?: (unitId: UnitId, hex: HexKey) => AttackOption[];
   /** Called after each render so the page can wire up its own buttons in topCard. */
   afterRender?: (root: HTMLElement) => void;
 }
@@ -68,7 +73,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const dsName = (type: string) => view.datasheets[type]?.name ?? type;
   const pathCost = (path: HexKey[]) => path.reduce((s, h) => s + terrainAt(h).cost, 0);
   const pathOf = (id: UnitId): HexKey[] => orders[id]?.path ?? [];
-  const hasOrders = (id: UnitId) => pathOf(id).length > 0 || orders[id]?.facing !== undefined;
+  const hasOrders = (id: UnitId) => pathOf(id).length > 0 || orders[id]?.facing !== undefined || orders[id]?.target !== undefined;
+  /** The orders as the rules engine takes them. */
+  const toOrders = (): PlayerOrders => Object.fromEntries(Object.entries(orders)
+    .filter(([id]) => hasOrders(id))
+    .map(([id, o]) => [id, { path: o.path, ...(o.facing !== undefined ? { facing: o.facing } : {}), ...(o.target ? { target: o.target } : {}) }]));
+  let pv: TurnPreview | null = null; // what ending the turn now would do
+  const pvAttacks = (): AttackEvent[] => (pv?.events ?? []).filter((e): e is AttackEvent => e.type === 'attack');
   const setPath = (id: UnitId, path: HexKey[]) => { orders[id] = { ...orders[id], path }; dirty = true; };
   const reportEvents = () => ctx.reports.flatMap((r) => r.events);
 
@@ -228,9 +239,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (!ctx.onEndTurn || busy) return;
     busy = true;
     render();
-    const out: PlayerOrders = Object.fromEntries(Object.entries(orders)
-      .filter(([id]) => hasOrders(id))
-      .map(([id, o]) => [id, o.facing === undefined ? { path: o.path } : { path: o.path, facing: o.facing }]));
+    const out = toOrders();
     dirty = false;
     await ctx.onEndTurn(out);
   }
@@ -276,7 +285,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         if (e.type === 'move' && e.path.length > 1) {
           out.push(`<polyline class="path" points="${polyline(e.path)}" stroke="${colorOf(e.owner)}" opacity=".45" marker-end="url(#arrow)"/>`);
         } else if (e.type === 'attack' && e.attackerHex) {
-          out.push(`<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hit ? '#d33' : '#555'}" stroke-dasharray="2 3" marker-end="url(#arrow)"/>`);
+          out.push(`<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hits ? '#d33' : '#555'}" stroke-dasharray="2 3" marker-end="url(#arrow)"/>`);
         }
       }
     }
@@ -287,10 +296,21 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       }
       // Planned end position and facing, as a dashed outline.
       const end = plannedEnd(u);
+      const endHex = pv?.endHex[u.id] ?? end.hex; // where the rules say it will actually stop
       if (path.length || end.facing !== u.facing) {
-        const p = px(end.hex);
-        out.push(`<g class="planned"><circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" stroke="${colorOf(u.owner)}"/>${facingWedge(end.hex, end.facing, colorOf(u.owner), 'facing planned-facing')}</g>`);
+        const p = px(endHex);
+        out.push(`<g class="planned"><circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" stroke="${colorOf(u.owner)}"/>${facingWedge(endHex, end.facing, colorOf(u.owner), 'facing planned-facing')}</g>`);
       }
+    }
+    // The attacks this turn would make, with their hits.
+    for (const e of pvAttacks()) {
+      const a = px(e.attackerHex);
+      const t = px(e.targetHex);
+      const mx = (a.x + t.x) / 2;
+      const my = (a.y + t.y) / 2;
+      out.push(`<g class="preview-attack${e.attacker === selected || e.target === selected ? ' active' : ''}">`
+        + `<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hits ? '#b3261e' : '#666'}" marker-end="url(#arrow)"/>`
+        + `<circle cx="${mx}" cy="${my}" r="8" fill="${e.hits ? '#b3261e' : '#666'}"/><text x="${mx}" y="${my}">${e.hits}</text></g>`);
     }
     for (const u of view.units) {
       const p = px(u.hex);
@@ -323,10 +343,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       case 'turn': return `${unitDesc(e.unit, e.owner, e.unitType)} at ${label(e.hex)} turned to face ${FACING_NAMES[e.facing]}.`;
       case 'clash': return `Opposing units collided at ${label(e.hex)}.`;
       case 'attack': {
-        const roll = `rolled ${e.dice.join('+')}${e.cover ? ` −${e.cover} cover` : ''}`;
         const target = unitDesc(e.target, e.targetOwner, e.targetType);
         const arc = e.arc === 'front' ? '' : ` in the ${e.arc}`;
-        return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}${arc}: ${roll} — ${e.hit ? 'hit!' : 'miss'}.`;
+        return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}${arc}: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
       }
       case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
       case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} for holding ${label(e.hex)}.`;
@@ -351,6 +370,29 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (path.length) return `to ${label(end.hex)}${turn}`;
     return orders[u.id]?.facing !== undefined && end.facing !== u.facing ? `turn ${FACING_ARROWS[end.facing]}` : 'hold';
   }
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  /** A combat tally sheet: every modifier on each side, the totals, and the result. */
+  function tallyHtml(t: Pick<AttackEvent, 'tally' | 'attack' | 'defence' | 'hits'>): string {
+    const lines = (side: 'attack' | 'defence') => t.tally.filter((l) => l.side === side)
+      .map((l) => `<tr><td>${esc(l.label)}</td><td>+${l.value}</td></tr>`).join('');
+    return `<table class="tally">
+      <tr class="head"><th colspan="2">Attack</th></tr>${lines('attack')}<tr class="total"><td>Attack</td><td>${t.attack}</td></tr>
+      <tr class="head"><th colspan="2">Defence</th></tr>${lines('defence')}<tr class="total"><td>Defence</td><td>${t.defence}</td></tr>
+      <tr class="result"><td>Hits (${t.attack} − ${t.defence}${t.attack < t.defence ? ', at least 0' : ''})</td><td>${t.hits}</td></tr>
+    </table>`;
+  }
+
+  /** What the attacks on one unit add up to this turn. */
+  function outcomeOn(targetId: UnitId): string {
+    const on = pvAttacks().filter((e) => e.target === targetId);
+    if (!on.length) return '';
+    const total = on.reduce((n, e) => n + e.hits, 0);
+    const target = view.units.find((u) => u.id === targetId);
+    const after = Math.max(0, (target?.strength ?? 0) - total);
+    return `${plural(on.length, 'attack')} on ${esc(unitDesc(targetId, target?.owner ?? '', target?.type))}: ${plural(total, 'hit')}, strength ${target?.strength} → ${after}${after === 0 ? ' — <b>destroyed</b>' : ''}.`;
+  }
+
   const arrow = (f: Facing) => `<span class="arrow" title="facing ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</span>`;
 
   function strengthBar(strength: number, max: number, color: string): string {
@@ -364,7 +406,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
         <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
         <td>${u.strength}/${view.datasheets[u.type].strength}</td><td>${u.move}</td><td>${u.sight}</td>
-        <td class="${hasOrders(u.id) ? 'moving' : 'muted'}">${ctx.mode === 'orders' ? orderText(u) : ''}</td></tr>`).join('');
+        <td class="${hasOrders(u.id) ? 'moving' : 'muted'}">${ctx.mode === 'orders' ? orderText(u) : ''}${pvAttacks().some((e) => e.attacker === u.id) ? ' <span title="attacks">⚔</span>' : ''}</td></tr>`).join('');
     const seen = others().map((u) => `<tr data-unit="${esc(u.id)}" class="${u.id === selected ? 'sel' : ''}">
         <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
         <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
@@ -415,6 +457,23 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
           <div class="small">Ends facing <b>${FACING_NAMES[end.facing]}</b> ${FACING_ARROWS[end.facing]}
             ${end.auto ? (path.length ? '(direction of last step)' : '(unchanged)') : '(ordered)'}<br>
             ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
+      // Combat: who this unit can attack from where it will stop, and exactly what each attack would do.
+      const endHex = pv?.endHex[own.id] ?? own.hex;
+      const opts = ctx.attackOptions?.(own.id, endHex) ?? [];
+      const made = pvAttacks().find((e) => e.attacker === own.id);
+      options += `<div class="ds-section"><h4>Combat</h4>${!opts.length
+        ? `<p class="small">No enemy next to ${label(endHex)}: no attack this turn.</p>`
+        : `<p class="small">After moving, ${esc(own.name)} attacks one enemy next to it${opts.length > 1 ? '. Choose which:' : ':'}</p>
+          <div class="targets">${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
+            <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
+          ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` : ''}
+          ${orders[own.id]?.target ? '<button class="link" data-action="target-auto">Clear target (attack the weakest)</button>' : ''}`}</div>`;
+    }
+    if (enemy && ctx.mode === 'orders') {
+      const on = pvAttacks().filter((e) => e.target === enemy.id);
+      options = `<div class="ds-section"><h4>Attacks on this unit this turn</h4>${on.length
+        ? on.map((e) => `<p class="small"><b>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))}</b>${e.arc === 'front' ? '' : ` (${e.arc})`}</p>${tallyHtml(e)}`).join('') + `<p class="small">${outcomeOn(enemy.id)}</p>`
+        : '<p class="small">None of your units will attack it.</p>'}</div>`;
     }
     return `<div class="card datasheet" style="border-top:4px solid ${color}">
       <div class="ds-head"><span class="counter" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
@@ -437,6 +496,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const finished = view.finished;
     const eliminated = new Set(view.eliminated);
     const moving = myUnits().filter((u) => hasOrders(u.id)).length;
+    const attacks = pvAttacks();
+    const destroyed = (pv?.events ?? []).filter((e) => e.type === 'destroyed').length;
+    const summary = `${plural(attacks.length, 'attack')}, ${plural(attacks.reduce((n, e) => n + e.hits, 0), 'hit')}${destroyed ? `, ${destroyed} destroyed` : ''}`;
     const reports = ctx.reports.filter((r) => r.events.length);
     return `
       ${ctx.topCard ?? ''}
@@ -446,13 +508,35 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
           ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''} — ${view.scores[p.id] ?? 0} pts
           ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : p.id === ctx.current ? '<span class="small">◀ to move</span>' : ''}</li>`).join('')}</ul>
         ${canOrder() ? `<div class="row submitrow"><button data-action="end-turn" ${busy ? 'disabled' : ''}>${busy ? 'Ending turn…' : 'End turn'}</button>
-          <span class="small">${moving} with orders, ${myUnits().length - moving} holding${dirty ? '<br>Orders are sent when you end your turn.' : ''}</span></div>` : ''}
+          <span class="small">${moving} with orders, ${myUnits().length - moving} holding<br>${summary}</span></div>` : ''}
       </div>
       ${renderUnitTables()}
+      ${canOrder() ? renderPreview() : ''}
       <div class="card"><h3>Reports</h3>
         ${reports.length ? `<label class="small"><input type="checkbox" data-action="replay" ${showReplay ? 'checked' : ''}> show on map</label>
           ${reports.map((r, i) => `<h4>${esc(r.title)}</h4><ol class="log" data-scroll="report-${i}">${r.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`).join('')}`
           : '<p class="small">Nothing to report.</p>'}</div>`;
+  }
+
+  /** Everything ending the turn now would do, worked out by the rules engine. */
+  function renderPreview(): string {
+    const events = pv?.events ?? [];
+    const halts = events.filter((e) => e.type === 'halt');
+    const items = events.map((e) => {
+      if (e.type === 'attack') {
+        const arc = e.arc === 'front' ? '' : ` (${e.arc})`;
+        return `<li><details><summary>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))} → ${esc(unitDesc(e.target, e.targetOwner, e.targetType))}${arc}: ${e.attack} vs ${e.defence}, <b>${plural(e.hits, 'hit')}</b></summary>${tallyHtml(e)}</details></li>`;
+      }
+      if (e.type === 'halt') return `<li class="warn">${esc(unitDesc(e.unit, e.owner))} will stop at ${label(e.hex)} (${esc(e.reason)}).</li>`;
+      if (e.type === 'destroyed') return `<li><b>${esc(unitDesc(e.unit, e.owner, e.unitType))} will be destroyed.</b></li>`;
+      if (e.type === 'score') return `<li>You will score ${e.points} for holding ${label(e.hex)}.</li>`;
+      if (e.type === 'gameover') return `<li><b>The battle will end: ${esc(e.reason)}</b></li>`;
+      return '';
+    }).filter(Boolean);
+    return `<div class="card preview"><h3>If you end your turn now</h3>
+      ${items.length ? `<ul class="log" data-scroll="preview">${items.join('')}</ul>` : '<p class="small">No attacks and no points this turn.</p>'}
+      ${halts.length ? '<p class="small">Units stop early when they come next to an enemy.</p>' : ''}
+      <p class="small">There are no dice: this is exactly what will happen. Open an attack to see its tally.</p></div>`;
   }
 
   function renderBanner(): string {
@@ -534,7 +618,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       dirty = true;
       return render();
     }
-    if (action === 'face-auto' && selected) { orders[selected] = { path: pathOf(selected) }; dirty = true; return render(); }
+    if (action === 'face-auto' && selected) { orders[selected] = { ...orders[selected], path: pathOf(selected), facing: undefined }; dirty = true; return render(); }
+    if (action === 'target' && selected) {
+      orders[selected] = { ...orders[selected], path: pathOf(selected), target: target.closest<HTMLElement>('[data-target]')!.dataset.target };
+      dirty = true;
+      return render();
+    }
+    if (action === 'target-auto' && selected) { orders[selected] = { ...orders[selected], path: pathOf(selected), target: undefined }; dirty = true; return render(); }
     const row = target.closest<HTMLElement>('tr[data-unit]');
     if (row) focusUnit(row.dataset.unit!);
   };
@@ -556,6 +646,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const scrolls = new Map([...side.querySelectorAll<HTMLElement>('[data-scroll]')].map((el) => [el.dataset.scroll!, el.scrollTop]));
     const dockTop = dock.scrollTop;
 
+    pv = ctx.mode === 'orders' && ctx.preview ? ctx.preview(toOrders()) : null;
     document.getElementById('banner')!.innerHTML = renderBanner();
     renderMap();
     side.innerHTML = renderSide();

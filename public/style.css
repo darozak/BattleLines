@@ -132,3 +132,20 @@ a.button.secondary { background: #e7e0d0; color: var(--ink); }
   .datasheet-dock { position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 45vh; z-index: 20; }
 }
 .side, .tablewrap, .log { overflow-anchor: none; }
+
+/* Prescriptive combat: tally sheets and the turn preview (#21) */
+table.tally { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0; }
+table.tally td { padding: 2px 6px; }
+table.tally td:last-child { text-align: right; font-variant-numeric: tabular-nums; width: 3em; }
+table.tally tr.head th { text-align: left; font-size: 12px; color: var(--muted); padding: 6px 6px 2px; border-bottom: 1px solid var(--line); }
+table.tally tr.total td { font-weight: bold; border-top: 1px solid var(--line); }
+table.tally tr.result td { font-weight: bold; background: #f3dfc7; border-top: 2px solid var(--accent); }
+.targets { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+.targets .target { background: #e7e0d0; color: var(--ink); font-weight: normal; text-align: left; padding: 6px 10px; font-size: 13px; }
+.targets .target.on { background: var(--accent); color: var(--accent-ink); }
+.preview .log li.warn { color: #7a5b0d; }
+.preview details summary { cursor: pointer; }
+svg .preview-attack .path { stroke-width: 3.5; opacity: .85; }
+svg .preview-attack.active .path { stroke-width: 5; opacity: 1; }
+svg .preview-attack text { font: bold 10px sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+svg .preview-attack { pointer-events: none; }

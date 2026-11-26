@@ -35,6 +35,6 @@ When a change affects players or how the project works, update in the same chang
 ## The game's design
 
 - Battle Lines is a static site. The whole game travels in the link; every player sees the whole battlefield. No server, no accounts, no hidden information.
-- The rules engine (`src/shared/engine.ts`) is pure and deterministic: every dice roll comes from the seed in the link, so the same orders always give the same result.
+- The rules engine (`src/shared/engine.ts`) is pure and deterministic. There are no dice: combat is a tally of modifiers, so the same orders always give the same result, and the page shows players exactly what their orders will do before they end the turn.
 - A change that alters how a turn plays out, or how a link is written, changes games in progress: say so, increase `LINK_VERSION` and ask the project lead about keeping the old version available (DV-01 §4.4).
 - The movement, combat and scoring rules are placeholders until `rules.md` is written.

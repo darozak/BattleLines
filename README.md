@@ -13,7 +13,9 @@ turn at a time.
 1. **Start a game.** Open the site, pick a scenario, and enter every player's name in turn order.
    You're player 1 and take the first turn straight away.
 2. **Give orders.** Click one of your units, in the unit table or on the map, to open its datasheet.
-   Click highlighted hexes to plot its move, and choose which way it should face when it stops.
+   Click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
+   more than one enemy will be in reach, which one to attack.
+   As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
 3. **End your turn.** Your units move, then attack any enemy next to them, then score for the
    objectives they hold. The page gives you a link for the next player, with buttons to copy,
    email or share it.
@@ -27,11 +29,12 @@ turn at a time.
 - **Hex battlefields** that scroll and zoom: a small skirmish map and a large 40×30 valley, with roads,
   woods, hills, ruins and water that affect movement, sight and cover.
 - **Units with datasheets**: infantry, scouts and heavy units, each with its own move, sight and strength.
-  Every unit faces one of the six hexsides, and attacks are reported as front, flank or rear.
+  Every unit faces one of the six hexsides; attacks on a unit's flank or rear are stronger.
 - **Nothing hidden**: every player sees the whole battlefield, as in chess.
-- **Fair dice**: a random seed in the link fixes every roll, so the same orders always give the same
-  result. When the link comes back to you, your browser replays the other players' moves from the
-  position you sent and tells you if anything doesn't match.
+- **No dice**: combat is decided by a tally of modifiers (strength, flank or rear, cover), and the
+  page shows you the tally and the result of every attack before you end your turn. When the link
+  comes back to you, your browser replays the other players' moves from the position you sent and
+  tells you if anything doesn't match.
 - **No sign-up, no tracking**: the game lives in the link, after the `#`, which browsers never send to
   the web server. Your browser remembers your recent games so you can reopen them.
 
@@ -44,7 +47,7 @@ hand-made scenarios and more are planned: see the [open issues](https://github.c
 - A flexible, easy-to-use correspondence wargame played by passing links.
 - Unit datasheets that describe special combat units and add an immense variety to the game.
 - The same rules applied to different periods and settings, with terrain tables for movement and combat,
-  and combat results built by combining modifiers with curve-adjusted risk tables.
+  and combat results built by combining modifiers into a tally the player sees before committing.
 
 See [design.md](design.md) for how the game is built and [market-study.md](market-study.md) for comparable games.
 Inspired by [Warhammer](https://www.warhammer-community.com/wp-content/uploads/2020/07/Lw4o3USx1R8sU7cQ.pdf)

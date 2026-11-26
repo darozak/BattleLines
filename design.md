@@ -37,20 +37,23 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   (`Player2` if nothing is left). The label is only for people: the page ignores it when reading the
   link, so editing it changes nothing.
 
-- **Contents:** link version, game id, name, scenario, seed, player names, the changing state (unit positions,
+- **Contents:** link version, game id, name, scenario, map seed, player names, the changing state (unit positions,
   facings and strengths; scores; round and whose turn it is), and the last round of player-turns (orders and
   what happened), used for reports and replay checks.
 - **Not in the link:** the map, datasheets and unit names. They are rebuilt from the scenario and seed.
-- **Size:** about 460 characters for 2 players on the small map, up to about 1,300 for 4 players on the
+- **Size:** about 470 characters for 2 players on the small map, up to about 1,350 for 4 players on the
   large map.
 
-## Dice and Fair Play
-- The game seed is in the link. Each player-turn's dice come from the seed, round and player, so the same
-  position and the same orders always give the same result.
+## Prescriptive Combat and Fair Play
+- There are no dice. Every attack's result is fixed by a tally of modifiers, so the same position and the
+  same orders always give the same result. (The seed in the link only generates the map.)
+- While a player plans, the page runs their orders through the rules engine and shows exactly what ending
+  the turn would do: each attack as a tally sheet listing every modifier, the units destroyed, units that
+  would stop early on contact, and points scored. The attacks are drawn on the map with their hits.
 - Each link carries the orders of the last round. When it's your turn again, your browser replays them from
   the position you sent and checks they produce what you received. An altered position shows a warning.
-- What can't be prevented: a player can reopen a link and try different orders to see what happens before
-  committing. The dice for a given turn are fixed, so trying the same orders again changes nothing.
+- Reopening a link to try different orders gains nothing: the page already shows every outcome before
+  the turn is ended.
 
 ## The Hex Map
 - Pointy-top hexes in offset rows, shown as labels like `D7`.
@@ -61,8 +64,11 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 1. **Movement:** units move one hex at a time along their paths. A unit stops when it becomes adjacent to a
    new enemy, and can't enter an enemy's hex. Moving units face their last step unless ordered otherwise.
 2. **Facing:** units turn to their ordered facing.
-3. **Combat:** each of the active player's units next to an enemy attacks the weakest one (2d6 − cover ≥ 8
-   hits). Attacks record which arc they hit (front, flank or rear).
+3. **Combat:** each of the active player's units next to an enemy attacks it: the target in its orders if
+   that enemy is in reach, otherwise the weakest. All attacks land together.
+   - **Attack** = the attacker's strength, +1 from the target's flank, +2 from its rear.
+   - **Defence** = 3 (base), + the cover of the target's hex (woods and hills 1, ruins 2).
+   - **Hits** = attack − defence, never below 0. Each hit removes one strength point; a unit at 0 is destroyed.
 4. **Scoring:** the active player scores 1 for each objective they hold with no enemy adjacent.
 
 ## Versioning

@@ -6,7 +6,7 @@
 import { mountBoard, SIDE_COLORS, SIDE_NAMES, type BoardContext, type BoardPlayer } from './board.js';
 import { esc, store } from './util.js';
 import { SCENARIOS } from '../shared/scenario.js';
-import { boardView } from '../shared/engine.js';
+import { boardView, previewTurn, attackOptions } from '../shared/engine.js';
 import {
   createGame, endTurn, readGame, encodeGame, verifyReplay, turnsSince, packState, playerId,
   type Game, type GameLink, type PackedState, type TurnRecord,
@@ -216,6 +216,8 @@ function playScreen(game: Game): void {
     mode: 'orders',
     reports: reportSections(link, turnsSince(link, me)),
     notice,
+    preview: (orders) => previewTurn(state, orders),
+    attackOptions: (unitId, hex) => attackOptions(state, unitId, hex),
     onEndTurn: async (orders) => {
       const ended = endTurn(game, orders);
       const hash = await encodeGame(ended.link);

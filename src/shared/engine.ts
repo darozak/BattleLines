@@ -1,12 +1,12 @@
-// Rules engine: pure functions only (no I/O, no clock, no randomness except the seeded dice).
+// Rules engine: pure functions only (no I/O, no clock, no randomness). There are no dice: the
+// same position and orders always give the same result, so the page can show a player exactly
+// what their orders will do before they end their turn.
 //   resolvePlayerTurn(state, orders) -> { state, events }
-// The movement/combat/scoring logic below is a PLACEHOLDER that exercises the game flow.
-// Replace it as the real rules are written.
+// The movement/combat/scoring numbers below are PLACEHOLDERS until the rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
 import { terrainAt } from './terrain.js';
-import { createRng, type Rng } from './rng.js';
 import type {
-  Datasheet, GameEvent, GameState, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
+  AttackEvent, Datasheet, GameEvent, GameState, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
 
 const alive = (state: GameState): Unit[] => state.units.filter((u) => u.strength > 0);
@@ -67,7 +67,14 @@ export function validateOrders(state: GameState, playerId: PlayerId, orders: unk
       errors.push(`${unit.name}: facing must be 0-5`);
       ok = false;
     }
-    if (ok && (path.length || isFacing(facing))) clean[unitId] = isFacing(facing) ? { path, facing } : { path };
+    const target = (order as { target?: unknown } | null)?.target;
+    if (target !== undefined && target !== null) {
+      const t = state.units.find((u) => u.id === target);
+      if (!t || t.owner === playerId || t.strength <= 0) { errors.push(`${unit.name}: can only target an enemy unit`); ok = false; }
+    }
+    if (ok && (path.length || isFacing(facing) || typeof target === 'string')) {
+      clean[unitId] = { path, ...(isFacing(facing) ? { facing } : {}), ...(typeof target === 'string' ? { target } : {}) };
+    }
   }
   return { ok: errors.length === 0, errors, orders: clean };
 }
@@ -89,7 +96,7 @@ interface Mover {
   reason: string | null;
 }
 
-function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, rng: Rng, events: GameEvent[]): void {
+function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, events: GameEvent[]): void {
   const units = alive(state);
   const byId = new Map(units.map((u) => [u.id, u]));
   const movers = new Map<UnitId, Mover>();
@@ -126,7 +133,7 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
         continue;
       }
       ms.sort((a, b) => a.unit.id.localeCompare(b.unit.id));
-      candidate.set(hex, ms.length > 1 ? ms[rng.int(ms.length)] : ms[0]);
+      candidate.set(hex, ms[0]); // several of one player's units want the same hex: the first in roster order goes
     }
     // Accept moves into empty hexes, then moves into hexes vacated by accepted friendly moves.
     const accepted = new Set<Mover>();
@@ -181,22 +188,51 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
   }
 }
 
-function resolveCombat(state: GameState, attacker: PlayerId, rng: Rng, events: GameEvent[]): void {
-  // PLACEHOLDER: each of the active player's units adjacent to an enemy attacks the weakest one;
-  // 2d6 - cover >= 8 hits.
+// ---------------------------------------------------------------- combat (PLACEHOLDER numbers)
+
+export const BASE_DEFENCE = 3;
+export const ARC_BONUS = { front: 0, flank: 1, rear: 2 } as const;
+
+/**
+ * The tally sheet for one unit attacking another: attack against defence, every modifier listed.
+ * `attackerHex` is where the attacker will be when it attacks (after moving).
+ */
+export function combatTally(state: GameState, attacker: Unit, attackerHex: HexKey, target: Unit): Pick<AttackEvent, 'arc' | 'tally' | 'attack' | 'defence' | 'hits'> {
+  const arc = arcOf(target.hex, target.facing, attackerHex);
+  const cover = terrainAt(state.map, target.hex);
+  const tally: TallyLine[] = [
+    { side: 'attack', label: `${attacker.name} strength`, value: attacker.strength },
+  ];
+  if (ARC_BONUS[arc]) tally.push({ side: 'attack', label: `${arc} attack`, value: ARC_BONUS[arc] });
+  tally.push({ side: 'defence', label: 'base defence', value: BASE_DEFENCE });
+  if (cover.defense) tally.push({ side: 'defence', label: `cover (${cover.name.toLowerCase()})`, value: cover.defense });
+  const attack = tally.filter((t) => t.side === 'attack').reduce((n, t) => n + t.value, 0);
+  const defence = tally.filter((t) => t.side === 'defence').reduce((n, t) => n + t.value, 0);
+  return { arc, tally, attack, defence, hits: Math.max(0, attack - defence) };
+}
+
+/** Enemies a unit could attack from a hex: every living enemy next to it. */
+export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey): Unit[] {
+  const adj = new Set(neighbors(hex));
+  return alive(state)
+    .filter((o) => o.owner !== attacker.owner && adj.has(o.hex))
+    .sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
+}
+
+function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrders, events: GameEvent[]): void {
+  // Each of the active player's units next to an enemy attacks it: the ordered target if it is in
+  // reach, otherwise the weakest. All attacks land together, after movement.
   const units = alive(state);
   const hits = new Map<UnitId, number>();
   for (const u of units) {
     if (u.owner !== attacker) continue;
-    const targets = enemiesAdjacent(units, u).sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
+    const targets = targetsFrom(state, u, u.hex);
     if (!targets.length) continue;
-    const t = targets[0];
-    const dice = [rng.d6(), rng.d6()];
-    const cover = terrainAt(state.map, t.hex).defense;
-    const hit = dice[0] + dice[1] - cover >= 8;
+    const t = targets.find((x) => x.id === orders[u.id]?.target) ?? targets[0];
+    const result = combatTally(state, u, u.hex, t);
     events.push({ type: 'attack', attacker: u.id, attackerOwner: u.owner, attackerType: u.type, attackerHex: u.hex,
-      target: t.id, targetOwner: t.owner, targetType: t.type, targetHex: t.hex, arc: arcOf(t.hex, t.facing, u.hex), dice, cover, hit });
-    if (hit) hits.set(t.id, (hits.get(t.id) || 0) + 1);
+      target: t.id, targetOwner: t.owner, targetType: t.type, targetHex: t.hex, ...result });
+    if (result.hits) hits.set(t.id, (hits.get(t.id) || 0) + result.hits);
   }
   for (const [id, n] of hits) {
     const u = state.units.find((x) => x.id === id)!;
@@ -223,28 +259,21 @@ export interface TurnResolution {
   events: GameEvent[];
 }
 
-/** The dice seed for one player-turn: fixed by the game seed, the round and the player. */
-export function turnSeed(state: GameState): number {
-  let h = (state.seed ^ Math.imul(state.turn, 0x9e3779b1) ^ Math.imul(state.current + 1, 0x85ebca6b)) >>> 0;
-  h = Math.imul(h ^ (h >>> 16), 0x7feb352d) >>> 0;
-  return (h ^ (h >>> 15)) >>> 0;
-}
-
 export const currentPlayer = (state: GameState): PlayerId => state.players[state.current].id;
 const hasUnits = (state: GameState, id: PlayerId) => state.units.some((u) => u.owner === id && u.strength > 0);
 
 /**
  * Resolve the current player's turn: their units move (and turn), then attack, then score.
- * Deterministic: the same state and orders always give the same result.
+ * Deterministic: the same state and orders always give the same result, so it doubles as a preview.
  */
 export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): TurnResolution {
   if (prevState.finished) throw new Error('The game is over.');
   const state = structuredClone(prevState);
   const active = currentPlayer(state);
-  const rng = createRng(turnSeed(state));
   const events: GameEvent[] = [];
-  resolveMovement(state, { [active]: validateOrders(state, active, orders).orders }, rng, events);
-  resolveCombat(state, active, rng, events);
+  const valid = validateOrders(state, active, orders).orders;
+  resolveMovement(state, { [active]: valid }, events);
+  resolveCombat(state, active, valid, events);
   resolveScoring(state, active, events);
 
   // Next player with units left; a new round starts when play wraps around.
@@ -295,4 +324,32 @@ export function boardView(state: GameState, viewer: PlayerId | null): PlayerView
     result: state.result,
     eliminated: state.players.filter((p) => !alive(state).some((u) => u.owner === p.id)).map((p) => p.id),
   };
+}
+
+// ---------------------------------------------------------------- preview
+
+export interface TurnPreview {
+  /** Exactly what ending the turn with these orders would do. */
+  events: GameEvent[];
+  /** Where each of the active player's units would end up. */
+  endHex: Record<UnitId, HexKey>;
+}
+
+/** Run the active player's planned orders through the rules without committing them. */
+export function previewTurn(state: GameState, orders: PlayerOrders): TurnPreview {
+  const active = currentPlayer(state);
+  const { state: after, events } = resolvePlayerTurn(state, orders);
+  const endHex = Object.fromEntries(after.units.filter((u) => u.owner === active).map((u) => [u.id, u.hex]));
+  return { events, endHex };
+}
+
+export interface AttackOption extends Pick<AttackEvent, 'arc' | 'tally' | 'attack' | 'defence' | 'hits'> {
+  target: Unit;
+}
+
+/** Every enemy a unit could attack from `hex`, with the tally sheet for each. */
+export function attackOptions(state: GameState, unitId: UnitId, hex: HexKey): AttackOption[] {
+  const unit = state.units.find((u) => u.id === unitId);
+  if (!unit) return [];
+  return targetsFrom(state, unit, hex).map((target) => ({ target, ...combatTally(state, unit, hex, target) }));
 }

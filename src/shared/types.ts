@@ -53,7 +53,7 @@ export interface GameResult {
 
 export interface GameState {
   scenario: string;
-  /** Game seed. Each player-turn's dice are derived from it, so replaying the same orders gives the same result. */
+  /** Game seed, used to generate the map. (There are no dice: combat is decided by a tally of modifiers.) */
   seed: number;
   /** Round number. A round ends when every player has taken a turn. */
   turn: number;
@@ -76,6 +76,8 @@ export interface UnitOrder {
   path: HexKey[];
   /** Facing at the end of the move. If omitted, a moving unit faces its last step; a unit that doesn't move keeps its facing. */
   facing?: Facing;
+  /** Enemy unit to attack after moving. If omitted (or out of reach), the unit attacks the weakest adjacent enemy. */
+  target?: UnitId;
 }
 export type PlayerOrders = Record<UnitId, UnitOrder>;
 
@@ -123,9 +125,19 @@ export interface AttackEvent {
   targetHex: HexKey;
   /** Which of the target's arcs the attack came from. */
   arc: 'front' | 'flank' | 'rear';
-  dice: number[];
-  cover: number;
-  hit: boolean;
+  /** Every modifier that decided the outcome. */
+  tally: TallyLine[];
+  attack: number;
+  defence: number;
+  /** attack − defence, never below 0. Each hit removes one strength point. */
+  hits: number;
+}
+
+/** One line of a combat tally sheet. */
+export interface TallyLine {
+  side: 'attack' | 'defence';
+  label: string;
+  value: number;
 }
 export interface DestroyedEvent {
   type: 'destroyed';
