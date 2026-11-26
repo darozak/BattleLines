@@ -1,5 +1,5 @@
 # Battle Lines
-Paper Cutlass is a versitile correspondence-based wargame that can be played with paper and pen.
+Battle Lines is a versatile correspondence-based wargame that is played by email on a hexagonal map.
 
 # Setup
 

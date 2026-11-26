@@ -1,12 +1,13 @@
 # Battle Lines
 
 ## Objectives
-- Create a flexable,easy-to-use, correspondence-based wargame that can be played with paper and pencil.
+- Create a flexible, easy-to-use, correspondence-based wargame played through email and a website.
 - Design unit datasheets that describe special combat units and add a immense variety to the game.
 - Generate income by selling access to new and updated unit cards.
 
 ## Key Concepts
-- The game is plaued entirely with paper and pencil.
+- The website acts as referee; email is the turn clock.
+- Played on a hexagonal map with simultaneous orders.
 - Players take turns placing their orders.
 - Unit datasheets describe abilities and range of actions.
 - The same rules can be applied to different periods and environments.
@@ -16,17 +17,15 @@
 - Players can send short in-game messages to their allies.
 
 ## Gameplay
-- Referee defines a scenario and invites player to join.
-- Players register to command different armies.
-- Players submit their initial troop configurations to the referee.
-- The referee reveals initial placements to those who can see them.
-- During each round:
-    - One of the players submits a command sheet to the referee.
-    - The referee plot's the player's moves, checks the actions, and determines what other players see.
-    - The referee awards points for achieved objectives.
-    - The referee sends individual updates to each player depending on what they see.
-    - The players plot the results on their own mapes.
-    - Command moves to the next player.
+- A host visits the Battle Lines website and enters the email addresses of the people to invite.
+- Battle Lines emails each invitee an invitation they can accept with one click.
+- A game is set up for everyone who accepts. Players are assigned armies on a hexagonal map.
+- Each turn lasts one week:
+    - Each player receives an email with the turn deadline and a private link.
+    - The link shows the player their own troops, what those troops can see, and what happened last turn.
+    - Players choose orders for their units and submit them before the deadline.
+    - At the deadline, the website resolves everyone's moves at the same time and emails out new links.
+- See [design.md](design.md) for the detailed system design.
 
 ## Sources of Inspiration
 - [Warhammer](https://www.warhammer-community.com/wp-content/uploads/2020/07/Lw4o3USx1R8sU7cQ.pdf)
