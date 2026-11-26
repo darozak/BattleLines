@@ -203,8 +203,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   async function endTurn(): Promise<void> {
     if (!ctx.onEndTurn || busy) return;
-    const n = myUnits().filter((u) => hasOrders(u.id)).length;
-    if (!confirm(`End your turn? ${n} of ${myUnits().length} units have orders. You can't change them afterwards.`)) return;
     busy = true;
     render();
     const out: PlayerOrders = Object.fromEntries(Object.entries(orders)
