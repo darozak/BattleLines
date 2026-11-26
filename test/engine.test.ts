@@ -94,6 +94,8 @@ test('players only see enemies within sight and line of sight', () => {
   assert.ok(!ids.includes('hidden'));
   assert.ok(!JSON.stringify(v).includes('"14,5"'), 'hidden unit positions never leave the server');
   assert.ok(visibleHexes(s, 'p0').has('2,5'));
+  const own = v.units.find((u) => u.id === 'a')!;
+  assert.equal(own.own && own.name, 'A', 'unit name is not replaced by the datasheet name');
 });
 
 test('enemy moves out of sight are not reported; last-seen markers persist', () => {
@@ -123,4 +125,20 @@ test('game ends at the turn limit', () => {
   const { state, events } = resolveTurn(s, {}, 1);
   assert.ok(state.finished);
   assert.ok(events.some((e) => e.type === 'gameover'));
+});
+
+test('large scenario: every unit starts on its own passable hex inside the map', () => {
+  for (const players of [2, 3, 4]) {
+    const s = createInitialState('valley', Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 7);
+    assert.equal(s.map.cols * s.map.rows, s.map.terrain.length);
+    assert.equal(s.units.length, players * 12);
+    const hexes = new Set(s.units.map((u) => u.hex));
+    assert.equal(hexes.size, s.units.length, 'no two units share a hex');
+    for (const u of s.units) {
+      const [c, r] = u.hex.split(',').map(Number);
+      assert.ok(c >= 0 && r >= 0 && c < s.map.cols && r < s.map.rows, `${u.hex} in bounds`);
+      assert.notEqual(s.map.terrain[r * s.map.cols + c], 'water');
+    }
+    assert.equal(s.objectives.length, 5);
+  }
 });

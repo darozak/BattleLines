@@ -28,24 +28,66 @@ table.roster th, table.roster td { text-align: left; padding: 6px 8px; border-bo
 .status.accepted { background: #dcefd6; } .status.declined { background: #f4d9d3; } .status.pending { background: #f3ead0; }
 
 /* Game screen */
-.game { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
-@media (max-width: 900px) { .game { grid-template-columns: 1fr; } }
-.mapwrap { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; }
-.mapwrap svg { display: block; width: 100%; height: auto; min-width: 560px; user-select: none; }
+main.wide { max-width: none; padding: 12px 16px; }
+.game { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
+@media (max-width: 960px) { .game { grid-template-columns: 1fr; } }
+.mapcol { min-width: 0; }
+.maptools { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.maptools #zoomlevel { min-width: 42px; text-align: center; }
+.hint-inline { margin-left: 8px; }
+.mapwrap { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: auto;
+  height: calc(100vh - 190px); min-height: 380px; cursor: grab; overscroll-behavior: contain; }
+@media (max-width: 960px) { .mapwrap { height: 62vh; } }
+.mapwrap.dragging { cursor: grabbing; }
+.mapwrap.dragging * { cursor: grabbing !important; }
+.mapwrap svg { display: block; user-select: none; }
+.side { position: sticky; top: 8px; max-height: calc(100vh - 100px); overflow: auto; padding-right: 2px; }
+@media (max-width: 960px) { .side { position: static; max-height: none; } }
 .side h3 { margin: 4px 0 8px; font-size: 16px; }
+.side h4 { margin: 10px 0 4px; font-size: 14px; }
 .side .card { margin: 0 0 12px; padding: 12px 14px; }
 .players li { list-style: none; display: flex; align-items: center; gap: 6px; font-size: 14px; }
-.players { padding: 0; margin: 0; }
+.players { padding: 0; margin: 8px 0 0; }
+.submitrow { margin-top: 10px; }
 .swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
-.log { font-size: 13px; max-height: 260px; overflow: auto; padding-left: 18px; margin: 0; }
+.swatch.hollow { background: transparent; border: 2px dashed; width: 12px; height: 12px; }
+.log { font-size: 13px; max-height: 240px; overflow: auto; padding-left: 18px; margin: 4px 0 0; }
 .log li { margin: 2px 0; }
 .small { font-size: 13px; color: var(--muted); }
-.orders { font-size: 14px; padding-left: 18px; margin: 4px 0 10px; }
-.banner { padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; font-size: 14px; }
+.banner { padding: 8px 12px; border-radius: 4px; margin-bottom: 10px; font-size: 14px; }
 .banner.ok { background: #e8f3e3; color: var(--ok); } .banner.warn { background: #f8efd6; color: #7a5b0d; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 12px; color: var(--muted); margin-top: 6px; }
 .legend span { display: inline-flex; align-items: center; gap: 4px; }
 .legend i { width: 12px; height: 12px; border: 1px solid #0003; display: inline-block; }
+button.small-btn { padding: 4px 10px; font-size: 14px; }
+button.link { background: none; color: var(--accent); padding: 0; font-weight: normal; text-decoration: underline; }
+
+/* Unit tables */
+.tablewrap { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+table.unittable { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.unittable th { position: sticky; top: 0; background: #f1ebde; text-align: left; padding: 4px 6px; font-weight: bold; z-index: 1; }
+table.unittable td { padding: 4px 6px; border-top: 1px solid #eee6d6; white-space: nowrap; }
+table.unittable tbody tr { cursor: pointer; }
+table.unittable tbody tr:hover { background: #f7f1e4; }
+table.unittable tbody tr.sel { background: #f3dfc7; }
+table.unittable td.moving { color: var(--accent); font-weight: bold; }
+table.unittable td.muted, .ghostrow td { color: var(--muted); }
+
+/* Datasheet */
+.datasheet .ds-head { display: flex; align-items: center; gap: 10px; }
+.datasheet .ds-head h3 { margin: 0; }
+.datasheet .close { margin-left: auto; background: none; color: var(--muted); font-size: 22px; padding: 0 4px; line-height: 1; }
+.counter { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font: bold 15px sans-serif; border: 2px solid; flex: none; }
+table.stats { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0 4px; }
+table.stats th { text-align: left; width: 90px; color: var(--muted); font-weight: normal; padding: 3px 0; }
+table.stats td { padding: 3px 0; }
+.bar { display: inline-block; width: 80px; height: 8px; background: #e8e0cf; border-radius: 4px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
+.bar span { display: block; height: 100%; }
+.ds-section { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 4px; font-size: 14px; }
+.ds-section p { margin: 4px 0; }
+
+/* Map */
 svg .hex { stroke: #00000022; stroke-width: 1; cursor: pointer; }
 svg .fog { fill: #2d2a24; opacity: .32; pointer-events: none; }
 svg .reach { fill: #fff; opacity: .35; pointer-events: none; }
@@ -53,8 +95,13 @@ svg .objective { fill: none; stroke: #8a3b12; stroke-width: 2.5; stroke-dasharra
 svg .unit { pointer-events: none; }
 svg .unit text { font: bold 13px sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
 svg .unit .str { font-size: 9px; fill: #2d2a24; }
-svg .selected { stroke: #fff; stroke-width: 3; }
+svg .unit.is-selected .body, svg .ghost.is-selected circle { stroke: #fff; stroke-width: 3; }
+svg .unit.is-selected .body { filter: drop-shadow(0 0 3px #000a); }
 svg .ghost circle { fill: none; stroke-dasharray: 3 2; stroke-width: 2; }
 svg .ghost text { fill: #2d2a24; opacity: .6; }
 svg .path { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+svg .path.active { stroke-width: 4; }
 svg .label { font: 8px sans-serif; fill: #00000066; text-anchor: middle; pointer-events: none; }
+svg .pulse { fill: none; stroke: #8a3b12; stroke-width: 3; pointer-events: none; transform-box: fill-box; transform-origin: center;
+  animation: pulse 0.8s ease-out 2; }
+@keyframes pulse { from { transform: scale(0.6); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }

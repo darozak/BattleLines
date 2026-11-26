@@ -17,7 +17,6 @@ export function layout(title: string, body: string, { devTools = false, wide = f
 const msg = (error?: string) => (error ? `<p class="error">${esc(error)}</p>` : '');
 
 export function homePage({ error, values = {} }: { error?: string; values?: CreateGameInput } = {}): string {
-  const sc = SCENARIOS.crossroads;
   const opt = (k: string) => `<option value="${k}" ${values.turnLength === k ? 'selected' : ''}>${formatDuration(TURN_LENGTHS[k])}</option>`;
   return `
 <section class="hero"><h1>Correspondence warfare, one week at a time.</h1>
@@ -28,7 +27,7 @@ battle is resolved for everyone at the same moment.</p></section>
 <label>Your name <input name="hostName" value="${esc(values.hostName)}" maxlength="60" placeholder="General Smith"></label>
 <label>Your email <input name="hostEmail" type="email" required value="${esc(values.hostEmail)}"></label>
 <label>Game name <input name="gameName" value="${esc(values.gameName)}" maxlength="80" placeholder="Battle of the Crossroads"></label>
-<label>Scenario <select name="scenario"><option value="crossroads">${esc(sc.name)} (2–${sc.maxPlayers} players, ${sc.turnLimit} turns)</option></select></label>
+<label>Scenario <select name="scenario">${Object.values(SCENARIOS).map((sc) => `<option value="${esc(sc.id)}" ${values.scenario === sc.id ? 'selected' : ''}>${esc(sc.name)} (${sc.cols}×${sc.rows} map, ${sc.roster.length} units each, 2–${sc.maxPlayers} players, ${sc.turnLimit} turns)</option>`).join('')}</select></label>
 <label>Turn length <select name="turnLength">${Object.keys(TURN_LENGTHS).map(opt).join('')}</select></label>
 <label>Invite players (email addresses, one per line)
 <textarea name="inviteEmails" rows="4" required>${esc(values.inviteEmails)}</textarea></label>

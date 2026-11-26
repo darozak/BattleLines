@@ -13,17 +13,13 @@ export const PLACEHOLDER_DATASHEETS: Record<string, Datasheet> = {
 export const SIDE_COLORS = ['#2b6cb0', '#c53030', '#2f855a', '#b7791f'];
 export const SIDE_NAMES = ['Blue', 'Red', 'Green', 'Gold'];
 
-const COLS = 16;
-const ROWS = 12;
-
-// Starting hexes for each side's four units: infantry, infantry, scout, heavy.
-const DEPLOYMENTS: HexKey[][] = [
+// Starting hexes for each side in the crossroads scenario: infantry, infantry, scout, heavy.
+const CROSSROADS_DEPLOYMENTS: HexKey[][] = [
   ['1,4', '1,7', '2,5', '0,6'],    // west
   ['14,4', '14,7', '13,6', '15,5'], // east
   ['6,1', '9,1', '7,2', '8,0'],    // north
   ['6,10', '9,10', '8,9', '7,11'], // south
 ];
-const ROSTER = ['infantry', 'infantry', 'scout', 'heavy'];
 
 export interface Scenario {
   id: string;
@@ -32,6 +28,16 @@ export interface Scenario {
   minPlayers: number;
   maxPlayers: number;
   turnLimit: number;
+  cols: number;
+  rows: number;
+  /** Unit types each side starts with, in deployment order. */
+  roster: string[];
+  /** Terrain clusters to scatter: [type, number of clusters, hexes per cluster]. */
+  terrain: [TerrainType, number, number][];
+  /** Fixed objectives; if omitted they are placed automatically. */
+  objectives?: HexKey[];
+  /** Fixed deployment hexes per side; if omitted they are placed along the map edges. */
+  deployments?: HexKey[][];
 }
 
 export const SCENARIOS: Record<string, Scenario> = {
@@ -42,50 +48,96 @@ export const SCENARIOS: Record<string, Scenario> = {
     minPlayers: 2,
     maxPlayers: 4,
     turnLimit: 10,
+    cols: 16,
+    rows: 12,
+    roster: ['infantry', 'infantry', 'scout', 'heavy'],
+    terrain: [['woods', 5, 6], ['hills', 3, 4], ['water', 1, 5], ['ruins', 1, 2]],
+    objectives: ['5,4', '10,7', '7,6'],
+    deployments: CROSSROADS_DEPLOYMENTS,
+  },
+  valley: {
+    id: 'valley',
+    name: 'Battle of the Broken Valley',
+    description: 'A large battlefield with a dozen units per side and five objectives. Placeholder rules.',
+    minPlayers: 2,
+    maxPlayers: 4,
+    turnLimit: 12,
+    cols: 40,
+    rows: 30,
+    roster: ['infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'infantry',
+      'scout', 'scout', 'scout', 'heavy', 'heavy', 'heavy'],
+    terrain: [['woods', 30, 9], ['hills', 16, 6], ['water', 4, 8], ['ruins', 6, 3]],
   },
 };
 
-export function generateMap(seed: number, protectedHexes: HexKey[]): GameMap {
+/** Deployment hexes along the middle of a map edge: west, east, north, south. */
+function edgeDeployment(side: number, count: number, cols: number, rows: number): HexKey[] {
+  const out: HexKey[] = [];
+  for (let i = 0; i < count; i++) {
+    const depth = i % 2;                 // two ranks deep
+    const along = Math.floor(i / 2) - Math.floor(count / 4);
+    if (side === 0) out.push(key(1 + depth, Math.floor(rows / 2) + along));
+    else if (side === 1) out.push(key(cols - 2 - depth, Math.floor(rows / 2) + along));
+    else if (side === 2) out.push(key(Math.floor(cols / 2) + along, 1 + depth));
+    else out.push(key(Math.floor(cols / 2) + along, rows - 2 - depth));
+  }
+  return out;
+}
+
+function defaultObjectives(cols: number, rows: number): HexKey[] {
+  const cx = Math.floor(cols / 2);
+  const cy = Math.floor(rows / 2);
+  const dx = Math.floor(cols / 4);
+  const dy = Math.floor(rows / 4);
+  return [key(cx, cy), key(cx - dx, cy - dy), key(cx + dx, cy + dy), key(cx + dx, cy - dy), key(cx - dx, cy + dy)];
+}
+
+export function deploymentsFor(scenario: Scenario, side: number): HexKey[] {
+  return scenario.deployments?.[side] ?? edgeDeployment(side, scenario.roster.length, scenario.cols, scenario.rows);
+}
+
+export function objectivesFor(scenario: Scenario): HexKey[] {
+  return scenario.objectives ?? defaultObjectives(scenario.cols, scenario.rows);
+}
+
+export function generateMap(scenario: Scenario, seed: number, protectedHexes: HexKey[]): GameMap {
+  const { cols, rows } = scenario;
   const rng = createRng(seed);
-  const terrain: TerrainType[] = new Array(COLS * ROWS).fill('open');
+  const terrain: TerrainType[] = new Array(cols * rows).fill('open');
   const set = (hex: HexKey, t: TerrainType) => {
     const [c, r] = hex.split(',').map(Number);
-    terrain[r * COLS + c] = t;
+    terrain[r * cols + c] = t;
   };
-  const grow = (type: TerrainType, seeds: number, size: number) => {
+  for (const [type, seeds, size] of scenario.terrain) {
     for (let i = 0; i < seeds; i++) {
-      let frontier = [key(rng.int(COLS), rng.int(ROWS))];
+      let frontier = [key(rng.int(cols), rng.int(rows))];
       for (let j = 0; j < size && frontier.length; j++) {
         const h = rng.pick(frontier);
         set(h, type);
-        frontier = frontier.concat(neighbors(h, COLS, ROWS));
+        frontier = frontier.concat(neighbors(h, cols, rows));
       }
     }
-  };
-  grow('woods', 5, 6);
-  grow('hills', 3, 4);
-  grow('water', 1, 5);
-  grow('ruins', 1, 2);
+  }
   // A road from west to east and one from north to south, crossing near the centre.
-  for (const h of line(key(0, 6), key(COLS - 1, 5))) set(h, 'road');
-  for (const h of line(key(7, 0), key(8, ROWS - 1))) set(h, 'road');
+  for (const h of line(key(0, Math.floor(rows / 2)), key(cols - 1, Math.floor(rows / 2) - 1))) set(h, 'road');
+  for (const h of line(key(Math.floor(cols / 2) - 1, 0), key(Math.floor(cols / 2), rows - 1))) set(h, 'road');
   for (const h of protectedHexes) set(h, 'open');
-  return { cols: COLS, rows: ROWS, terrain };
+  return { cols, rows, terrain };
 }
 
 export interface ScenarioPlayer { id: PlayerId; side: number }
 
 export function createInitialState(scenarioId: string, players: ScenarioPlayer[], seed: number): GameState {
   const scenario = SCENARIOS[scenarioId];
-  const objectives = ['5,4', '10,7', '7,6'];
-  const deploy = players.flatMap((p) => DEPLOYMENTS[p.side]);
-  const map = generateMap(seed, [...objectives, ...deploy]);
+  const objectives = objectivesFor(scenario);
+  const deploy = players.flatMap((p) => deploymentsFor(scenario, p.side));
+  const map = generateMap(scenario, seed, [...objectives, ...deploy]);
   const units: Unit[] = [];
   let n = 0;
   for (const p of players) {
     const counts: Record<string, number> = {};
-    DEPLOYMENTS[p.side].forEach((hex, i) => {
-      const type = ROSTER[i];
+    deploymentsFor(scenario, p.side).forEach((hex, i) => {
+      const type = scenario.roster[i];
       const ds = PLACEHOLDER_DATASHEETS[type];
       counts[type] = (counts[type] || 0) + 1;
       units.push({

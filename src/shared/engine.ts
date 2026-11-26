@@ -317,7 +317,7 @@ export function playerView(state: GameState, playerId: PlayerId): PlayerView {
   const seen = visibleHexes(state, playerId);
   const units: VisibleUnit[] = [];
   for (const u of alive(state)) {
-    if (u.owner === playerId) units.push({ ...u, ...stats(state, u), own: true });
+    if (u.owner === playerId) units.push({ ...stats(state, u), ...u, own: true }); // unit's own name/strength win over the datasheet's
     else if (seen.has(u.hex)) units.push({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, strength: u.strength, code: stats(state, u).code, own: false });
   }
   const visibleIds = new Set(units.map((u) => u.id));
