@@ -6,7 +6,7 @@ import {
 import { encodeFragment, fromB64u, toB64u, LinkError } from '../src/shared/link.js';
 import { linkLabel } from '../src/shared/game.js';
 import { neighbors } from '../src/shared/hex.js';
-import { terrainAt } from '../src/shared/terrain.js';
+import { terrainAt, elevationAt } from '../src/shared/terrain.js';
 import type { GameState, PlayerOrders } from '../src/shared/types.js';
 
 const NAMES = ['Alice', 'Bob', 'Cara', 'Dev'];
@@ -20,7 +20,8 @@ function someOrders(state: GameState): PlayerOrders {
   const orders: PlayerOrders = {};
   for (const u of state.units.filter((x) => x.owner === me && x.strength > 0)) {
     const step = neighbors(u.hex, state.map.cols, state.map.rows)
-      .find((h) => !taken.has(h) && !terrainAt(state.map, h).impassable && terrainAt(state.map, h).cost <= 3);
+      .find((h) => !taken.has(h) && !terrainAt(state.map, h).impassable && terrainAt(state.map, h).cost <= 3
+        && Math.abs(elevationAt(state.map, h) - elevationAt(state.map, u.hex)) <= state.datasheets[u.type].climb);
     if (step) { orders[u.id] = { path: [step] }; taken.add(step); }
   }
   return orders;

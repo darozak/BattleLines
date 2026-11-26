@@ -1,7 +1,7 @@
 // The battle board: a scrollable, zoomable hex map with a side panel (unit tables, datasheets,
 // orders, reports). Clicking a unit, in the table or on the map, zooms the map to it and opens
 // its datasheet; for the player's own units the datasheet has their move and facing orders.
-import { parse, neighbors, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
+import { parse, neighbors, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN } from '../shared/terrain.js';
 import type {
   AttackEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
@@ -63,6 +63,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   // ---------------------------------------------------------------- helpers
 
   const terrainAt = (hex: HexKey): Terrain => { const { col, row } = parse(hex); return TERRAIN[view.map.terrain[row * view.map.cols + col]]; };
+  const elevationAt = (hex: HexKey): number => { const { col, row } = parse(hex); return view.map.elevation[row * view.map.cols + col] ?? 0; };
+  const maxElevation = Math.max(0, ...view.map.elevation);
   const player = (id: PlayerId) => ctx.players.find((p) => p.id === id);
   const colorOf = (ownerId: PlayerId) => SIDE_COLORS[player(ownerId)?.side ?? 0];
   const sideOf = (ownerId: PlayerId) => SIDE_NAMES[player(ownerId)?.side ?? 0];
@@ -130,6 +132,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       for (const n of neighbors(h, cols, rows)) {
         const t = terrainAt(n);
         if (t.impassable || blocked.has(n)) continue;
+        if (Math.abs(elevationAt(n) - elevationAt(h)) > unit.climb) continue; // too steep for this unit
         const c = best.get(h)!.cost + t.cost;
         if (c > budget) continue;
         if (!best.has(n) || c < best.get(n)!.cost) { best.set(n, { cost: c, prev: h }); queue.push(n); }
@@ -270,6 +273,24 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const p = px(hex);
         out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${terrainAt(hex).color}"/>`);
         if (showLabels) out.push(`<text class="label" x="${p.x}" y="${p.y + SIZE * 0.62}">${label(hex)}</text>`);
+        // Lower ground is shaded darker; the height is written at the top of the hex.
+        const e = elevationAt(hex);
+        if (e < maxElevation) out.push(`<polygon class="shade" points="${hexPoints(p.x, p.y)}" fill-opacity="${((maxElevation - e) * 0.06).toFixed(2)}"/>`);
+        if (showLabels) out.push(`<text class="elev" x="${p.x}" y="${p.y - SIZE * 0.6}">${e}</text>`);
+      }
+    }
+    // Cliffs: edges where the ground drops 2 or more levels (too steep for most units).
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const hex = `${c},${r}`;
+        const p = px(hex);
+        neighbors(hex).forEach((n, dir) => {
+          if (dir !== 0 && dir !== 4 && dir !== 5) return; // each shared edge once: E, SW, SE
+          if (!inBounds(n, cols, rows) || Math.abs(elevationAt(n) - elevationAt(hex)) < 2) return;
+          const a = FACING_ANGLES[dir];
+          const end = (deg: number) => `${(p.x + SIZE * Math.cos((deg * Math.PI) / 180)).toFixed(1)},${(p.y + SIZE * Math.sin((deg * Math.PI) / 180)).toFixed(1)}`;
+          out.push(`<polyline class="cliff" points="${end(a - 30)} ${end(a + 30)}"/>`);
+        });
       }
     }
     for (const hex of view.objectives) {
@@ -375,7 +396,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   /** A combat tally sheet: every modifier on each side, the totals, and the result. */
   function tallyHtml(t: Pick<AttackEvent, 'tally' | 'attack' | 'defence' | 'hits'>): string {
     const lines = (side: 'attack' | 'defence') => t.tally.filter((l) => l.side === side)
-      .map((l) => `<tr><td>${esc(l.label)}</td><td>+${l.value}</td></tr>`).join('');
+      .map((l) => `<tr><td>${esc(l.label)}</td><td>${l.value < 0 ? '−' : '+'}${Math.abs(l.value)}</td></tr>`).join('');
     return `<table class="tally">
       <tr class="head"><th colspan="2">Attack</th></tr>${lines('attack')}<tr class="total"><td>Attack</td><td>${t.attack}</td></tr>
       <tr class="head"><th colspan="2">Defence</th></tr>${lines('defence')}<tr class="total"><td>Defence</td><td>${t.defence}</td></tr>
@@ -482,9 +503,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <table class="stats">
         <tr><th>Strength</th><td>${unit.strength} / ${ds.strength} ${strengthBar(unit.strength, ds.strength, color)}</td></tr>
         <tr><th>Move</th><td>${ds.move}</td></tr>
+        <tr><th>Climb</th><td>${ds.climb} <span class="small">(level${ds.climb === 1 ? '' : 's'} up or down per step)</span></td></tr>
         <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</td></tr>
         <tr><th>Sight</th><td>${ds.sight}${t.sightBonus ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
-        <tr><th>Location</th><td>${label(unit.hex)} · ${t.name}${t.defense ? ` <span class="small">(cover ${t.defense})</span>` : ''}</td></tr>
+        <tr><th>Location</th><td>${label(unit.hex)} · ${t.name}${t.defense ? ` <span class="small">(cover ${t.defense})</span>` : ''} · elevation ${elevationAt(unit.hex)}</td></tr>
       </table>
       ${options}
       ${history.length ? `<div class="ds-section"><h4>Recently</h4><ul class="log">${history.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ul></div>` : ''}
@@ -567,7 +589,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <div class="datasheet-dock" id="datasheet" hidden></div>
     </div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
-      <span>◌ objective</span><span>dashed outline = planned move</span></div>
+      <span>◌ objective</span><span>number = elevation (darker = lower)</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
   </div>
   <aside class="side" id="side"></aside>
 </div>`;

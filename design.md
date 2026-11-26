@@ -58,15 +58,20 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 ## The Hex Map
 - Pointy-top hexes in offset rows, shown as labels like `D7`.
 - Terrain affects movement cost, line of sight and cover. Every unit faces one of the six hexsides.
+- Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.
+  Hills sit one level above the ground around them. The map shades lower ground darker, writes each hex's
+  height at its top, and draws edges with a drop of 2 or more as cliffs.
 - The map scrolls and zooms. A unit table sits beside it, and clicking a unit opens its datasheet and orders.
 
 ## Turn Resolution (placeholder rules)
 1. **Movement:** units move one hex at a time along their paths. A unit stops when it becomes adjacent to a
    new enemy, and can't enter an enemy's hex. Moving units face their last step unless ordered otherwise.
+   Each step may rise or fall by at most the unit's **climb** (1 for most units, 2 for scouts).
 2. **Facing:** units turn to their ordered facing.
 3. **Combat:** each of the active player's units next to an enemy attacks it: the target in its orders if
    that enemy is in reach, otherwise the weakest. All attacks land together.
-   - **Attack** = the attacker's strength, +1 from the target's flank, +2 from its rear.
+   - **Attack** = the attacker's strength, +1 from the target's flank, +2 from its rear, + the attacker's
+     height above the target (or − its height below it, when attacking uphill).
    - **Defence** = 3 (base), + the cover of the target's hex (woods and hills 1, ruins 2).
    - **Hits** = attack − defence, never below 0. Each hit removes one strength point; a unit at 0 is destroyed.
 4. **Scoring:** the active player scores 1 for each objective they hold with no enemy adjacent.

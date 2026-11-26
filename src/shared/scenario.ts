@@ -1,13 +1,13 @@
 // Prototype scenario: a small free-for-all skirmish on a generated hex map.
 // Datasheets and numbers here are PLACEHOLDERS until the real rules are written.
-import { key, neighbors, line, facingToward } from './hex.js';
+import { key, neighbors, line, facingToward, distance } from './hex.js';
 import { createRng } from './rng.js';
 import type { Datasheet, GameMap, GameState, HexKey, PlayerId, TerrainType, Unit } from './types.js';
 
 export const PLACEHOLDER_DATASHEETS: Record<string, Datasheet> = {
-  infantry: { name: 'Infantry', code: 'I', move: 4, sight: 5, strength: 4 },
-  scout:    { name: 'Scout',    code: 'S', move: 6, sight: 7, strength: 2 },
-  heavy:    { name: 'Heavy',    code: 'H', move: 3, sight: 4, strength: 6 },
+  infantry: { name: 'Infantry', code: 'I', move: 4, sight: 5, strength: 4, climb: 1 },
+  scout:    { name: 'Scout',    code: 'S', move: 6, sight: 7, strength: 2, climb: 2 },
+  heavy:    { name: 'Heavy',    code: 'H', move: 3, sight: 4, strength: 6, climb: 1 },
 };
 
 export const SIDE_COLORS = ['#2b6cb0', '#c53030', '#2f855a', '#b7791f'];
@@ -122,7 +122,22 @@ export function generateMap(scenario: Scenario, seed: number, protectedHexes: He
   for (const h of line(key(0, Math.floor(rows / 2)), key(cols - 1, Math.floor(rows / 2) - 1))) set(h, 'road');
   for (const h of line(key(Math.floor(cols / 2) - 1, 0), key(Math.floor(cols / 2), rows - 1))) set(h, 'road');
   for (const h of protectedHexes) set(h, 'open');
-  return { cols, rows, terrain };
+
+  // Elevation (PLACEHOLDER shape): a few rises, each sloping down one level every two hexes, so
+  // neighbouring hexes mostly differ by at most 1. Hills sit one level above the ground around
+  // them, which makes the occasional two-level drop: a cliff for most units.
+  const elevation = new Array<number>(cols * rows).fill(0);
+  const rises = Math.max(2, Math.round((cols * rows) / 60));
+  const peaks = Array.from({ length: rises }, () => ({ hex: key(rng.int(cols), rng.int(rows)), height: 2 + rng.int(2) }));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const h = key(c, r);
+      const i = r * cols + c;
+      const base = Math.max(0, ...peaks.map((p) => p.height - Math.floor(distance(h, p.hex) / 2)));
+      elevation[i] = terrain[i] === 'water' ? 0 : base + (terrain[i] === 'hills' ? 1 : 0);
+    }
+  }
+  return { cols, rows, terrain, elevation };
 }
 
 export interface ScenarioPlayer { id: PlayerId; side: number }

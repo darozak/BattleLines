@@ -4,7 +4,7 @@
 //   resolvePlayerTurn(state, orders) -> { state, events }
 // The movement/combat/scoring numbers below are PLACEHOLDERS until the rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
-import { terrainAt } from './terrain.js';
+import { terrainAt, elevationAt } from './terrain.js';
 import type {
   AttackEvent, Datasheet, GameEvent, GameState, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
@@ -53,6 +53,12 @@ export function validateOrders(state: GameState, playerId: PlayerId, orders: unk
     for (const h of path) {
       if (!inBounds(h, state.map.cols, state.map.rows) || !neighbors(prev).includes(h)) {
         errors.push(`${unit.name}: path is not continuous`);
+        ok = false;
+        break;
+      }
+      const rise = elevationAt(state.map, h) - elevationAt(state.map, prev);
+      if (Math.abs(rise) > stats(state, unit).climb) {
+        errors.push(`${unit.name}: can't ${rise > 0 ? 'climb' : 'descend'} ${Math.abs(rise)} levels in one step (climb ${stats(state, unit).climb})`);
         ok = false;
         break;
       }
@@ -204,6 +210,9 @@ export function combatTally(state: GameState, attacker: Unit, attackerHex: HexKe
     { side: 'attack', label: `${attacker.name} strength`, value: attacker.strength },
   ];
   if (ARC_BONUS[arc]) tally.push({ side: 'attack', label: `${arc} attack`, value: ARC_BONUS[arc] });
+  const height = elevationAt(state.map, attackerHex) - elevationAt(state.map, target.hex);
+  if (height > 0) tally.push({ side: 'attack', label: `higher ground (${height} above)`, value: height });
+  if (height < 0) tally.push({ side: 'attack', label: `attacking uphill (${-height} below)`, value: height });
   tally.push({ side: 'defence', label: 'base defence', value: BASE_DEFENCE });
   if (cover.defense) tally.push({ side: 'defence', label: `cover (${cover.name.toLowerCase()})`, value: cover.defense });
   const attack = tally.filter((t) => t.side === 'attack').reduce((n, t) => n + t.value, 0);

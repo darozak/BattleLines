@@ -28,10 +28,13 @@ turn at a time.
 
 - **Hex battlefields** that scroll and zoom: a small skirmish map and a large 40×30 valley, with roads,
   woods, hills, ruins and water that affect movement, sight and cover.
-- **Units with datasheets**: infantry, scouts and heavy units, each with its own move, sight and strength.
+- **Elevation**: every hex has a height. Most units can climb or descend only one level per step
+  (scouts can manage two), so steep drops act as cliffs. Attacking from higher ground is stronger;
+  attacking uphill is weaker.
+- **Units with datasheets**: infantry, scouts and heavy units, each with its own move, climb, sight and strength.
   Every unit faces one of the six hexsides; attacks on a unit's flank or rear are stronger.
 - **Nothing hidden**: every player sees the whole battlefield, as in chess.
-- **No dice**: combat is decided by a tally of modifiers (strength, flank or rear, cover), and the
+- **No dice**: combat is decided by a tally of modifiers (strength, flank or rear, height, cover), and the
   page shows you the tally and the result of every attack before you end your turn. When the link
   comes back to you, your browser replays the other players' moves from the position you sent and
   tells you if anything doesn't match.

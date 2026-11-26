@@ -149,3 +149,9 @@ svg .preview-attack .path { stroke-width: 3.5; opacity: .85; }
 svg .preview-attack.active .path { stroke-width: 5; opacity: 1; }
 svg .preview-attack text { font: bold 10px sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
 svg .preview-attack { pointer-events: none; }
+
+/* Elevation (#22) */
+svg .shade { fill: #1f1a12; pointer-events: none; }
+svg .elev { font: bold 8px sans-serif; fill: #00000080; text-anchor: middle; pointer-events: none; }
+svg .cliff { fill: none; stroke: #3b2a16; stroke-width: 3.5; stroke-linecap: round; pointer-events: none; }
+.legend i.cliff-key { width: 14px; height: 0; border: 0; border-top: 3px solid #3b2a16; }

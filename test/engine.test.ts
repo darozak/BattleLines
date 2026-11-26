@@ -8,6 +8,7 @@ import type { AttackEvent, GameState, HexKey, PlayerOrders, Unit } from '../src/
 function openState(players = 2): GameState {
   const s = createInitialState('crossroads', Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
   s.map.terrain.fill('open'); // flat, open map for predictable tests
+  s.map.elevation.fill(0);
   return s;
 }
 
@@ -224,6 +225,50 @@ test('preview: exactly what ending the turn will do, and the options for each un
   assert.deepEqual(opts.map((o) => o.target.id), ['weak', 'strong']);
   assert.ok(opts.every((o) => o.hits === o.attack - o.defence || (o.hits === 0 && o.attack < o.defence)));
   assert.deepEqual(attackOptions(s, 'a', '1,1'), [], 'nothing in reach');
+});
+
+test('elevation: units climb or descend at most their climb value per step', () => {
+  const s = openState();
+  s.units = [unit('inf', 'p0', 'infantry', '3,5'), unit('sc', 'p0', 'scout', '3,7'), unit('z', 'p1', 'infantry', '15,11')];
+  const at = (hex: HexKey) => { const [c, r] = hex.split(',').map(Number); return r * 16 + c; };
+  s.map.elevation[at('4,5')] = 1;  // a gentle rise: fine for everyone
+  s.map.elevation[at('5,5')] = 3;  // then a cliff of 2
+  s.map.elevation[at('4,7')] = 2;  // a 2-level step: only the scout (climb 2) can make it
+  assert.equal(validateOrders(s, 'p0', { inf: { path: ['4,5'] } }).ok, true);
+  assert.match(validateOrders(s, 'p0', { inf: { path: ['4,5', '5,5'] } }).errors[0], /can't climb 2 levels/);
+  assert.equal(validateOrders(s, 'p0', { sc: { path: ['4,7'] } }).ok, true, 'scouts climb 2');
+  s.units[0].hex = '5,5';
+  assert.match(validateOrders(s, 'p0', { inf: { path: ['6,5'] } }).errors[0], /can't descend 3 levels/);
+  // Invalid orders are dropped when the turn is resolved: the unit stays put.
+  assert.equal(play(s, 0, { inf: { path: ['6,5'] } }).state.units.find((u) => u.id === 'inf')!.hex, '5,5');
+});
+
+test('elevation: higher ground adds to the attack, attacking uphill takes away', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '5,5', { facing: 0 }), unit('b', 'p1', 'infantry', '6,5', { facing: 3 })]; // face to face: E and W
+  const at = (hex: HexKey) => { const [c, r] = hex.split(',').map(Number); return r * 16 + c; };
+  s.map.elevation[at('5,5')] = 2;
+  s.map.elevation[at('6,5')] = 0;
+  const down = combatTally(s, s.units[0], '5,5', s.units[1]);
+  assert.ok(down.tally.some((l) => l.label === 'higher ground (2 above)' && l.value === 2));
+  assert.equal(down.attack, 8);
+  const up = combatTally(s, s.units[1], '6,5', s.units[0]);
+  assert.ok(up.tally.some((l) => l.label === 'attacking uphill (2 below)' && l.value === -2));
+  assert.equal(up.attack, 2);
+  assert.equal(up.hits, 0);
+  s.map.elevation[at('5,5')] = 0;
+  assert.ok(!combatTally(s, s.units[0], '5,5', s.units[1]).tally.some((l) => /ground|uphill/.test(l.label)), 'level ground: no modifier');
+});
+
+test('elevation: generated with the map, the same for the same seed, hills higher', () => {
+  const players = [{ id: 'p0', side: 0 }, { id: 'p1', side: 1 }];
+  const a = createInitialState('valley', players, 11).map;
+  const b = createInitialState('valley', players, 11).map;
+  assert.deepEqual(a.elevation, b.elevation);
+  assert.equal(a.elevation.length, a.cols * a.rows);
+  assert.ok(a.elevation.every((e) => Number.isInteger(e) && e >= 0 && e <= 4));
+  assert.ok(new Set(a.elevation).size >= 3, 'the ground varies');
+  a.terrain.forEach((t, i) => { if (t === 'water') assert.equal(a.elevation[i], 0); });
 });
 
 test('scenario units start facing the centre of the map', () => {

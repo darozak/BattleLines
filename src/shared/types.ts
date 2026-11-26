@@ -27,6 +27,8 @@ export interface Datasheet {
   move: number;
   sight: number;
   strength: number;
+  /** The largest change in elevation the unit can make in one step (most units 1). */
+  climb: number;
 }
 
 export interface GameMap {
@@ -34,6 +36,8 @@ export interface GameMap {
   rows: number;
   /** Row-major: terrain[row * cols + col]. */
   terrain: TerrainType[];
+  /** Row-major, like terrain: each hex's height, 0 and up. */
+  elevation: number[];
 }
 
 export interface Unit {

@@ -11,6 +11,11 @@ export const TERRAIN: Record<TerrainType, Terrain> = {
   water: { name: 'Water', cost: 0, impassable: true, blocksSight: false, sightBonus: 0, defense: 0, color: '#8dbcdc' },
 };
 
+export function elevationAt(map: GameMap, hex: HexKey): number {
+  const [col, row] = hex.split(',').map(Number);
+  return map.elevation[row * map.cols + col] ?? 0;
+}
+
 export function terrainAt(map: GameMap, hex: HexKey): Terrain {
   const [col, row] = hex.split(',').map(Number);
   return TERRAIN[map.terrain[row * map.cols + col]];
