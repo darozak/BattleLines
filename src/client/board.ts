@@ -142,10 +142,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const start = path.length ? path[path.length - 1] : unit.hex;
     const budget = unit.move - pathCost(path);
     const { cols, rows } = view.map;
-    // Can't enter visible enemies, or friendly units that are staying put (no stacking).
+    // Can't enter enemies, friendly units that are staying put (no stacking), or hexes where other
+    // friendly units are planning to end their moves (#23). A friendly unit that is moving away
+    // frees its current hex, so a column can still follow its leader.
     const blocked = new Set(units()
       .filter((u) => !u.own || (u.id !== unit.id && !pathOf(u.id).length))
       .map((u) => u.hex));
+    for (const u of myUnits()) {
+      if (u.id !== unit.id && pathOf(u.id).length) blocked.add(plannedEnd(u).hex);
+    }
     const best = new Map<HexKey, { cost: number; prev: HexKey }>([[start, { cost: 0, prev: start }]]);
     const queue = [start];
     while (queue.length) {
