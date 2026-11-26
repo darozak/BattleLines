@@ -25,7 +25,7 @@
     - The link shows the player their own troops, what those troops can see, and what happened last turn.
     - Players choose orders for their units and submit them before the deadline.
     - At the deadline, the website resolves everyone's moves at the same time and emails out new links.
-- See [design.md](design.md) for the detailed system design.
+- See [design.md](design.md) for the detailed system design and [market-study.md](market-study.md) for comparable games.
 
 ## Sources of Inspiration
 - [Warhammer](https://www.warhammer-community.com/wp-content/uploads/2020/07/Lw4o3USx1R8sU7cQ.pdf)
