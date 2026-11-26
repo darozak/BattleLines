@@ -1,6 +1,6 @@
 // Prototype scenario: a small free-for-all skirmish on a generated hex map.
 // Datasheets and numbers here are PLACEHOLDERS until the real rules are written.
-import { key, neighbors, line } from './hex.js';
+import { key, neighbors, line, facingToward } from './hex.js';
 import { createRng } from './rng.js';
 import type { Datasheet, GameMap, GameState, HexKey, PlayerId, TerrainType, Unit } from './types.js';
 
@@ -146,6 +146,7 @@ export function createInitialState(scenarioId: string, players: ScenarioPlayer[]
         type,
         name: `${ds.name} ${counts[type]}`,
         hex,
+        facing: facingToward(hex, key(Math.floor(scenario.cols / 2), Math.floor(scenario.rows / 2))), // face the centre
         strength: ds.strength,
       });
     });

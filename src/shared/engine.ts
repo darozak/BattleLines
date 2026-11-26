@@ -2,7 +2,7 @@
 //   resolveTurn(state, ordersByPlayer, seed) -> { state, events, logs }
 // The movement/spotting/combat logic below is a PLACEHOLDER that exercises the
 // simultaneous-turn pipeline. Replace it as the real rules are written.
-import { neighbors, distance, line, inBounds } from './hex.js';
+import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
 import { terrainAt } from './terrain.js';
 import { createRng, type Rng } from './rng.js';
 import type {
@@ -76,7 +76,12 @@ export function validateOrders(state: GameState, playerId: PlayerId, orders: unk
       if (mp < 0) { errors.push(`${unit.name}: not enough movement`); ok = false; break; }
       prev = h;
     }
-    if (ok && path.length) clean[unitId] = { path };
+    const facing = (order as { facing?: unknown } | null)?.facing;
+    if (facing !== undefined && facing !== null && !isFacing(facing)) {
+      errors.push(`${unit.name}: facing must be 0-5`);
+      ok = false;
+    }
+    if (ok && (path.length || isFacing(facing))) clean[unitId] = isFacing(facing) ? { path, facing } : { path };
   }
   return { ok: errors.length === 0, errors, orders: clean };
 }
@@ -105,7 +110,7 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
   for (const orders of Object.values(ordersByPlayer)) {
     for (const [unitId, order] of Object.entries(orders)) {
       const u = byId.get(unitId);
-      if (!u) continue;
+      if (!u || !order.path.length) continue;
       movers.set(unitId, { unit: u, path: [...order.path], mp: stats(state, u).move,
         traversed: [u.hex], stopped: false, waits: 0, reason: null });
     }
@@ -152,6 +157,7 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
     }
     for (const m of accepted) {
       const hex = m.path.shift()!;
+      m.unit.facing = facingToward(m.unit.hex, hex);
       m.unit.hex = hex;
       m.mp -= terrainAt(state.map, hex).cost;
       m.traversed.push(hex);
@@ -169,9 +175,21 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
     }
   }
 
+  // Units turn to their ordered facing at the end of movement (PLACEHOLDER: turning is free,
+  // even for units halted by contact). Otherwise a unit that moved faces its last step.
+  for (const orders of Object.values(ordersByPlayer)) {
+    for (const [unitId, order] of Object.entries(orders)) {
+      const u = byId.get(unitId);
+      if (u && order.facing !== undefined && u.facing !== order.facing) {
+        u.facing = order.facing;
+        if (!movers.has(unitId)) events.push({ type: 'turn', unit: u.id, owner: u.owner, unitType: u.type, hex: u.hex, facing: u.facing });
+      }
+    }
+  }
+
   for (const m of movers.values()) {
     if (m.traversed.length > 1) {
-      events.push({ type: 'move', unit: m.unit.id, owner: m.unit.owner, unitType: m.unit.type, path: m.traversed });
+      events.push({ type: 'move', unit: m.unit.id, owner: m.unit.owner, unitType: m.unit.type, path: m.traversed, facing: m.unit.facing });
     }
     if (m.stopped) events.push({ type: 'halt', unit: m.unit.id, owner: m.unit.owner, hex: m.unit.hex, reason: m.reason! });
   }
@@ -189,7 +207,7 @@ function resolveCombat(state: GameState, rng: Rng, events: GameEvent[]): void {
     const cover = terrainAt(state.map, t.hex).defense;
     const hit = dice[0] + dice[1] - cover >= 8;
     events.push({ type: 'attack', attacker: u.id, attackerOwner: u.owner, attackerType: u.type, attackerHex: u.hex,
-      target: t.id, targetOwner: t.owner, targetType: t.type, targetHex: t.hex, dice, cover, hit });
+      target: t.id, targetOwner: t.owner, targetType: t.type, targetHex: t.hex, arc: arcOf(t.hex, t.facing, u.hex), dice, cover, hit });
     if (hit) hits.set(t.id, (hits.get(t.id) || 0) + 1);
   }
   for (const [id, n] of hits) {
@@ -224,6 +242,9 @@ function filterEvents(state: GameState, events: GameEvent[], playerId: PlayerId,
         break;
       case 'halt':
         if (e.owner === playerId) out.push(e);
+        break;
+      case 'turn':
+        if (e.owner === playerId || seenAfter.has(e.hex)) out.push(e);
         break;
       case 'clash':
         if (seenAfter.has(e.hex) || e.units.some((id) => state.units.find((u) => u.id === id)?.owner === playerId)) out.push(e);
@@ -291,7 +312,7 @@ export function resolveTurn(prevState: GameState, ordersByPlayer: Record<PlayerI
       if (u.strength <= 0) {
         if (logs[p.id].some((e) => e.type === 'destroyed' && e.unit === u.id)) delete memory[u.id];
       } else if (seenAfter.has(u.hex)) {
-        memory[u.id] = { hex: u.hex, turn: state.turn, owner: u.owner, type: u.type };
+        memory[u.id] = { hex: u.hex, facing: u.facing, turn: state.turn, owner: u.owner, type: u.type };
       }
     }
   }
@@ -305,7 +326,7 @@ export function initialSpotting(state: GameState): GameState {
     const seen = visibleHexes(state, p.id);
     for (const u of state.units) {
       if (u.owner !== p.id && seen.has(u.hex)) {
-        state.lastSeen[p.id][u.id] = { hex: u.hex, turn: 0, owner: u.owner, type: u.type };
+        state.lastSeen[p.id][u.id] = { hex: u.hex, facing: u.facing, turn: 0, owner: u.owner, type: u.type };
       }
     }
   }
@@ -318,7 +339,7 @@ export function playerView(state: GameState, playerId: PlayerId): PlayerView {
   const units: VisibleUnit[] = [];
   for (const u of alive(state)) {
     if (u.owner === playerId) units.push({ ...stats(state, u), ...u, own: true }); // unit's own name/strength win over the datasheet's
-    else if (seen.has(u.hex)) units.push({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, strength: u.strength, code: stats(state, u).code, own: false });
+    else if (seen.has(u.hex)) units.push({ id: u.id, owner: u.owner, type: u.type, hex: u.hex, facing: u.facing, strength: u.strength, code: stats(state, u).code, own: false });
   }
   const visibleIds = new Set(units.map((u) => u.id));
   const ghosts: Ghost[] = Object.entries(state.lastSeen[playerId] || {})

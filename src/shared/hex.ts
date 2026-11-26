@@ -1,7 +1,7 @@
 // Hex grid helpers. Pointy-top hexes in "odd-r" offset layout (odd rows shifted right).
 // A hex is identified by the string key "col,row". This module has no dependencies and
 // is shared with the browser.
-import type { HexKey } from './types.js';
+import type { Facing, HexKey } from './types.js';
 
 interface Offset { col: number; row: number }
 interface Axial { q: number; r: number }
@@ -96,4 +96,51 @@ export function toPixel(k: HexKey, size: number): { x: number; y: number } {
     x: size * Math.sqrt(3) * (col + 0.5 * (row & 1)),
     y: size * 1.5 * row,
   };
+}
+
+// ---------------------------------------------------------------- facing
+// A facing is the index (0-5) of the hexside a unit faces, in the same order as
+// neighbors(): E, NE, NW, W, SW, SE. Angles are screen degrees (y points down).
+
+export const FACING_NAMES = ['E', 'NE', 'NW', 'W', 'SW', 'SE'] as const;
+export const FACING_ARROWS = ['→', '↗', '↖', '←', '↙', '↘'] as const;
+export const FACING_ANGLES = [0, -60, -120, 180, 120, 60] as const;
+
+export const isFacing = (f: unknown): f is Facing => Number.isInteger(f) && (f as number) >= 0 && (f as number) <= 5;
+
+/** Smallest signed difference between two angles, in degrees (-180..180]. */
+function angleDiff(a: number, b: number): number {
+  let d = (a - b) % 360;
+  if (d <= -180) d += 360;
+  if (d > 180) d -= 360;
+  return d;
+}
+
+function angleBetween(from: HexKey, to: HexKey): number {
+  const a = toPixel(from, 1);
+  const b = toPixel(to, 1);
+  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+}
+
+/** Facing that points from one hex toward another (nearest hexside). */
+export function facingToward(from: HexKey, to: HexKey): Facing {
+  if (from === to) return 0;
+  const a = angleBetween(from, to);
+  let best = 0;
+  for (let i = 1; i < 6; i++) {
+    if (Math.abs(angleDiff(a, FACING_ANGLES[i])) < Math.abs(angleDiff(a, FACING_ANGLES[best]))) best = i;
+  }
+  return best as Facing;
+}
+
+export type Arc = 'front' | 'flank' | 'rear';
+
+/**
+ * Which arc of a unit (at `hex`, facing `facing`) the hex `from` lies in.
+ * Adjacent hexes: the faced hexside and its two neighbours are front, the next two are
+ * flank, and the opposite hexside is rear. PLACEHOLDER until the rules define arcs.
+ */
+export function arcOf(hex: HexKey, facing: Facing, from: HexKey): Arc {
+  const d = Math.abs(angleDiff(angleBetween(hex, from), FACING_ANGLES[facing]));
+  return d <= 90 ? 'front' : d <= 150 ? 'flank' : 'rear';
 }

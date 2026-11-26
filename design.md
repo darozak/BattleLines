@@ -81,7 +81,7 @@ At one turn per week, a 12-turn game takes about 3 months, so:
 |---|---|
 | Game | id, scenario_id, status, turn_number, turn_deadline, turn_length, rng_seed |
 | Player | id, game_id, email, side, token, accepted_at, missed_turns |
-| Unit | id, game_id, player_id, datasheet_id, hex, facing, strength, status |
+| Unit | id, game_id, player_id, datasheet_id, hex, facing (one of 6 hexsides), strength, status |
 | Datasheet | id, name, move, range, attack, defense, morale, sight, abilities |
 | Orders | game_id, turn, player_id, unit_id, order JSON, submitted_at |
 | TurnResult | game_id, turn, event log, per-player visible log |

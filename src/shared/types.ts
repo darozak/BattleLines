@@ -2,6 +2,8 @@
 
 /** A hex is identified by the string "col,row" (odd-r offset coordinates). */
 export type HexKey = string;
+/** Hexside a unit faces: 0-5 = E, NE, NW, W, SW, SE (see hex.ts). */
+export type Facing = 0 | 1 | 2 | 3 | 4 | 5;
 export type PlayerId = string;
 export type UnitId = string;
 
@@ -40,11 +42,13 @@ export interface Unit {
   type: string;
   name: string;
   hex: HexKey;
+  facing: Facing;
   strength: number;
 }
 
 export interface LastSeen {
   hex: HexKey;
+  facing: Facing;
   turn: number;
   owner: PlayerId;
   type: string;
@@ -75,6 +79,8 @@ export interface GameState {
 export interface UnitOrder {
   /** Hexes to move through, not including the unit's starting hex. */
   path: HexKey[];
+  /** Facing at the end of the move. If omitted, a moving unit faces its last step; a unit that doesn't move keeps its facing. */
+  facing?: Facing;
 }
 export type PlayerOrders = Record<UnitId, UnitOrder>;
 
@@ -86,6 +92,8 @@ export interface MoveEvent {
   owner: PlayerId;
   unitType: string;
   path: HexKey[];
+  /** Facing when the move ended. */
+  facing: Facing;
   /** Set on enemy moves that were only partly in sight. */
   partial?: boolean;
 }
@@ -95,6 +103,15 @@ export interface HaltEvent {
   owner: PlayerId;
   hex: HexKey;
   reason: string;
+}
+/** A unit changed facing without moving. */
+export interface TurnEvent {
+  type: 'turn';
+  unit: UnitId;
+  owner: PlayerId;
+  unitType: string;
+  hex: HexKey;
+  facing: Facing;
 }
 export interface ClashEvent {
   type: 'clash';
@@ -112,6 +129,8 @@ export interface AttackEvent {
   targetOwner: PlayerId;
   targetType: string;
   targetHex: HexKey;
+  /** Which of the target's arcs the attack came from. */
+  arc: 'front' | 'flank' | 'rear';
   dice: number[];
   cover: number;
   hit: boolean;
@@ -133,13 +152,13 @@ export interface ScoreEvent {
 export interface GameOverEvent extends GameResult {
   type: 'gameover';
 }
-export type GameEvent = MoveEvent | HaltEvent | ClashEvent | AttackEvent | DestroyedEvent | ScoreEvent | GameOverEvent;
+export type GameEvent = MoveEvent | HaltEvent | TurnEvent | ClashEvent | AttackEvent | DestroyedEvent | ScoreEvent | GameOverEvent;
 
 // ---------------------------------------------------------------- what a player may see
 
 export type VisibleUnit =
   | (Unit & Datasheet & { own: true })
-  | { id: UnitId; owner: PlayerId; type: string; hex: HexKey; strength: number; code: string; own: false };
+  | { id: UnitId; owner: PlayerId; type: string; hex: HexKey; facing: Facing; strength: number; code: string; own: false };
 
 export interface Ghost extends LastSeen {
   id: UnitId;

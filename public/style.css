@@ -105,3 +105,15 @@ svg .label { font: 8px sans-serif; fill: #00000066; text-anchor: middle; pointer
 svg .pulse { fill: none; stroke: #8a3b12; stroke-width: 3; pointer-events: none; transform-box: fill-box; transform-origin: center;
   animation: pulse 0.8s ease-out 2; }
 @keyframes pulse { from { transform: scale(0.6); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }
+
+/* Facing */
+svg .facing { stroke: #fffdf8; stroke-width: 1.2; pointer-events: none; }
+svg .ghost-facing { opacity: .5; }
+svg .planned circle { fill: none; stroke-width: 2; stroke-dasharray: 4 3; opacity: .9; pointer-events: none; }
+svg .planned-facing { opacity: .85; stroke-dasharray: 2 2; }
+.arrow { color: var(--muted); font-family: sans-serif; }
+.facing-row { display: flex; gap: 12px; align-items: center; }
+.compass { display: grid; grid-template-columns: repeat(2, 34px); gap: 4px; }
+.compass .face { width: 34px; height: 30px; padding: 0; background: #e7e0d0; color: var(--ink); font: 16px sans-serif; }
+.compass .face.current { outline: 2px dashed #b9ab8f; }
+.compass .face.on { background: var(--accent); color: var(--accent-ink); }

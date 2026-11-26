@@ -3,12 +3,14 @@
 //  - A unit table beside the map. Clicking a unit (in the table or on the map) zooms the map to
 //    it and opens its datasheet, with order options for the player's own units.
 // All hidden-information filtering is done by the server; this page only shows what it is sent.
-import { parse, neighbors, toPixel, label } from '../shared/hex.js';
+import { parse, neighbors, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN } from '../shared/terrain.js';
-import type { GameEvent, Ghost, HexKey, PlayerData, PlayerId, Terrain, UnitId, VisibleUnit } from '../shared/types.js';
+import type { Facing, GameEvent, Ghost, HexKey, PlayerData, PlayerId, Terrain, UnitId, VisibleUnit } from '../shared/types.js';
 
 type OwnUnit = Extract<VisibleUnit, { own: true }>;
 type EnemyUnit = Extract<VisibleUnit, { own: false }>;
+/** A unit's planned order: a move path and, optionally, the facing to end with. */
+interface Plan { path: HexKey[]; facing?: Facing }
 
 const app = document.getElementById('app')!;
 const token = app.dataset.token!;
@@ -21,7 +23,7 @@ const FOCUS_ZOOM = 1.25;         // minimum zoom when jumping to a unit
 
 let data: PlayerData;
 let loaded = false;
-let orders: Record<UnitId, HexKey[]> = {};
+let orders: Record<UnitId, Plan> = {};
 let selected: UnitId | null = null;    // any visible unit or last-seen marker
 let showReplay = true;
 let dirty = false;
@@ -42,6 +44,19 @@ const canOrder = () => data.game.status === 'active' && myUnits().length > 0;
 const ownUnit = (id: UnitId | null) => (id ? myUnits().find((u) => u.id === id) : undefined);
 const dsName = (type: string) => data.view.datasheets[type]?.name ?? type;
 const pathCost = (path: HexKey[]) => path.reduce((s, h) => s + terrainAt(h).cost, 0);
+const pathOf = (id: UnitId): HexKey[] => orders[id]?.path ?? [];
+const hasOrders = (id: UnitId) => pathOf(id).length > 0 || orders[id]?.facing !== undefined;
+const setPath = (id: UnitId, path: HexKey[]) => { orders[id] = { ...orders[id], path }; dirty = true; };
+
+/** Where a unit will end up and which way it will face, if its orders are carried out. */
+function plannedEnd(u: OwnUnit): { hex: HexKey; facing: Facing; auto: boolean } {
+  const path = pathOf(u.id);
+  const hex = path.length ? path[path.length - 1] : u.hex;
+  const ordered = orders[u.id]?.facing;
+  if (ordered !== undefined) return { hex, facing: ordered, auto: false };
+  if (path.length) return { hex, facing: facingToward(path.length > 1 ? path[path.length - 2] : u.hex, hex), auto: true };
+  return { hex, facing: u.facing, auto: true };
+}
 
 function baseSize() {
   const { cols, rows } = data.view.map;
@@ -70,7 +85,7 @@ async function load(): Promise<void> {
   const prevTurn = loaded ? data.game.turn : undefined;
   data = await res.json();
   if (prevTurn && prevTurn !== data.game.turn) flash = { kind: 'ok', text: `Turn ${prevTurn} has been resolved.` };
-  orders = Object.fromEntries(Object.entries(data.myOrders || {}).map(([id, o]) => [id, [...o.path]]));
+  orders = Object.fromEntries(Object.entries(data.myOrders || {}).map(([id, o]) => [id, { path: [...o.path], facing: o.facing }]));
   dirty = false;
   if (selected && !data.view.units.some((u) => u.id === selected) && !data.view.ghosts.some((g) => g.id === selected)) selected = null;
   const first = !loaded;
@@ -85,13 +100,13 @@ async function load(): Promise<void> {
 
 // Cheapest paths from the end of a unit's current planned path, within its remaining movement.
 function reachable(unit: OwnUnit): Map<HexKey, { cost: number; prev: HexKey }> {
-  const path = orders[unit.id] || [];
+  const path = pathOf(unit.id);
   const start = path.length ? path[path.length - 1] : unit.hex;
   const budget = unit.move - pathCost(path);
   const { cols, rows } = data.view.map;
   // Can't enter visible enemies, or friendly units that are staying put (no stacking).
   const blocked = new Set(data.view.units
-    .filter((u) => !u.own || (u.id !== unit.id && !(orders[u.id] || []).length))
+    .filter((u) => !u.own || (u.id !== unit.id && !pathOf(u.id).length))
     .map((u) => u.hex));
   const best = new Map<HexKey, { cost: number; prev: HexKey }>([[start, { cost: 0, prev: start }]]);
   const queue = [start];
@@ -115,18 +130,16 @@ function reachable(unit: OwnUnit): Map<HexKey, { cost: number; prev: HexKey }> {
 function onHexClick(hex: HexKey): void {
   const unit = ownUnit(selected);
   if (unit && canOrder()) {
-    const path = orders[unit.id] || [];
+    const path = pathOf(unit.id);
     if (path.length && hex === path[path.length - 1]) { // click the end of the path to step back
-      orders[unit.id] = path.slice(0, -1);
-      dirty = true;
+      setPath(unit.id, path.slice(0, -1));
       return render();
     }
     const reach = reachable(unit);
     if (reach.has(hex)) {
       const steps: HexKey[] = [];
       for (let h = hex; reach.has(h); h = reach.get(h)!.prev) steps.unshift(h);
-      orders[unit.id] = [...path, ...steps];
-      dirty = true;
+      setPath(unit.id, [...path, ...steps]);
       return render();
     }
   }
@@ -191,7 +204,9 @@ function scrollRowIntoView(id: UnitId): void {
 }
 
 async function submit(): Promise<void> {
-  const body = { orders: Object.fromEntries(Object.entries(orders).filter(([, p]) => p.length).map(([id, path]) => [id, { path }])) };
+  const body = { orders: Object.fromEntries(Object.entries(orders)
+    .filter(([id]) => hasOrders(id))
+    .map(([id, o]) => [id, o.facing === undefined ? { path: o.path } : { path: o.path, facing: o.facing }])) };
   const res = await fetch(`/api/p/${token}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const out = await res.json();
   if (!res.ok) { flash = { kind: 'warn', text: out.error }; return render(); }
@@ -207,6 +222,16 @@ async function submit(): Promise<void> {
 }
 
 // ---------------------------------------------------------------- map
+
+/** A small triangle on the edge of a counter pointing the way the unit faces. */
+function facingWedge(hex: HexKey, facing: Facing, color: string, cls = 'facing'): string {
+  const p = px(hex);
+  const a = (FACING_ANGLES[facing] * Math.PI) / 180;
+  const r = SIZE * 0.6;
+  const at = (dist: number, side: number) =>
+    `${(p.x + Math.cos(a) * dist - Math.sin(a) * side).toFixed(1)},${(p.y + Math.sin(a) * dist + Math.cos(a) * side).toFixed(1)}`;
+  return `<polygon class="${cls}" points="${at(r + 8, 0)} ${at(r - 2, -6)} ${at(r - 2, 6)}" fill="${color}"/>`;
+}
 
 function renderMap(): void {
   const wrap = document.getElementById('mapwrap')!;
@@ -244,18 +269,24 @@ function renderMap(): void {
     }
   }
   for (const u of myUnits()) {
-    const path = orders[u.id];
-    if (path?.length) {
-      out.push(`<polyline class="path${u.id === selected ? ' active' : ''}" points="${polyline([u.hex, ...path])}" stroke="#fff" stroke-dasharray="6 4" marker-end="url(#arrow)"/>`);
+    const path = pathOf(u.id);
+    if (path.length) {
+      out.push(`<polyline class="path${u.id === selected ? ' active' : ''}" points="${polyline([u.hex, ...path])}" stroke="#fff" stroke-dasharray="6 4"/>`);
+    }
+    // Planned end position and facing, as a dashed outline.
+    const end = plannedEnd(u);
+    if (path.length || end.facing !== u.facing) {
+      const p = px(end.hex);
+      out.push(`<g class="planned"><circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" stroke="${colorOf(u.owner)}"/>${facingWedge(end.hex, end.facing, colorOf(u.owner), 'facing planned-facing')}</g>`);
     }
   }
   for (const g of data.view.ghosts) {
     const p = px(g.hex);
-    out.push(`<g class="unit ghost${g.id === selected ? ' is-selected' : ''}"><circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.55}" stroke="${colorOf(g.owner)}"/><text x="${p.x}" y="${p.y}">${esc(g.code)}?</text></g>`);
+    out.push(`<g class="unit ghost${g.id === selected ? ' is-selected' : ''}">${facingWedge(g.hex, g.facing, colorOf(g.owner), 'facing ghost-facing')}<circle cx="${p.x}" cy="${p.y}" r="${SIZE * 0.55}" stroke="${colorOf(g.owner)}"/><text x="${p.x}" y="${p.y}">${esc(g.code)}?</text></g>`);
   }
   for (const u of data.view.units) {
     const p = px(u.hex);
-    out.push(`<g class="unit${u.id === selected ? ' is-selected' : ''}"><circle class="body" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" fill="${colorOf(u.owner)}"/>`
+    out.push(`<g class="unit${u.id === selected ? ' is-selected' : ''}">${facingWedge(u.hex, u.facing, colorOf(u.owner))}<circle class="body" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" fill="${colorOf(u.owner)}"/>`
       + `<text x="${p.x}" y="${p.y - 1}">${esc(u.code)}</text>`
       + `<circle cx="${p.x + SIZE * 0.5}" cy="${p.y - SIZE * 0.45}" r="7" fill="#fffdf8" stroke="${colorOf(u.owner)}"/>`
       + `<text class="str" x="${p.x + SIZE * 0.5}" y="${p.y - SIZE * 0.45}">${u.strength}</text></g>`);
@@ -281,12 +312,14 @@ function describe(e: GameEvent): string {
       return `${who} seen moving through ${e.path.map(label).join(', ')}${e.partial ? ' (partly out of sight)' : ''}.`;
     }
     case 'halt': return `${unitDesc(e.unit, e.owner)} halted at ${label(e.hex)}: ${e.reason}.`;
+    case 'turn': return `${unitDesc(e.unit, e.owner, e.unitType)} at ${label(e.hex)} turned to face ${FACING_NAMES[e.facing]}.`;
     case 'clash': return `Opposing units collided at ${label(e.hex)}.`;
     case 'attack': {
       const roll = `rolled ${e.dice.join('+')}${e.cover ? ` −${e.cover} cover` : ''}`;
       const target = unitDesc(e.target, e.targetOwner, e.targetType);
-      if (e.unseenAttacker) return `Unseen enemy attacked ${target} — ${e.hit ? 'hit' : 'miss'}.`;
-      return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}: ${roll} — ${e.hit ? 'hit!' : 'miss'}.`;
+      const arc = e.arc === 'front' ? '' : ` in the ${e.arc}`;
+      if (e.unseenAttacker) return `Unseen enemy attacked ${target}${arc} — ${e.hit ? 'hit' : 'miss'}.`;
+      return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}${arc}: ${roll} — ${e.hit ? 'hit!' : 'miss'}.`;
     }
     case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
     case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} for holding ${label(e.hex)}.`;
@@ -297,7 +330,7 @@ function describe(e: GameEvent): string {
 
 const involves = (e: GameEvent, id: UnitId): boolean => {
   switch (e.type) {
-    case 'move': case 'halt': case 'destroyed': return e.unit === id;
+    case 'move': case 'halt': case 'turn': case 'destroyed': return e.unit === id;
     case 'clash': return e.units.includes(id);
     case 'attack': return e.attacker === id || e.target === id;
     default: return false;
@@ -313,9 +346,13 @@ function timeLeft(ms: number): string {
 }
 
 function orderText(u: OwnUnit): string {
-  const p = orders[u.id];
-  return p?.length ? `→ ${label(p[p.length - 1])}` : 'hold';
+  const path = pathOf(u.id);
+  const end = plannedEnd(u);
+  const turn = end.facing !== u.facing || !end.auto ? ` ${FACING_ARROWS[end.facing]}` : '';
+  if (path.length) return `to ${label(end.hex)}${turn}`;
+  return orders[u.id]?.facing !== undefined && end.facing !== u.facing ? `turn ${FACING_ARROWS[end.facing]}` : 'hold';
 }
+const arrow = (f: Facing) => `<span class="arrow" title="facing ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</span>`;
 
 function strengthBar(strength: number, max: number, color: string): string {
   const pct = Math.max(0, Math.min(100, (strength / max) * 100));
@@ -326,16 +363,16 @@ function renderUnitTables(): string {
   const mine = myUnits();
   const rows = mine.map((u) => `<tr data-unit="${esc(u.id)}" class="${u.id === selected ? 'sel' : ''}">
       <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
-      <td>${esc(u.name)}</td><td>${label(u.hex)}</td>
+      <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
       <td>${u.strength}/${data.view.datasheets[u.type].strength}</td><td>${u.move}</td><td>${u.sight}</td>
-      <td class="${orders[u.id]?.length ? 'moving' : 'muted'}">${orderText(u)}</td></tr>`).join('');
+      <td class="${hasOrders(u.id) ? 'moving' : 'muted'}">${orderText(u)}</td></tr>`).join('');
   const seen = enemies().map((u) => `<tr data-unit="${esc(u.id)}" class="${u.id === selected ? 'sel' : ''}">
       <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
-      <td>${esc(sideOf(u.owner))} ${esc(dsName(u.type))}</td><td>${label(u.hex)}</td>
+      <td>${esc(sideOf(u.owner))} ${esc(dsName(u.type))}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
       <td>${u.strength}/${data.view.datasheets[u.type].strength}</td><td colspan="3">in sight</td></tr>`);
   const ghosts = data.view.ghosts.map((g) => `<tr data-unit="${esc(g.id)}" class="ghostrow ${g.id === selected ? 'sel' : ''}">
       <td><span class="swatch hollow" style="border-color:${colorOf(g.owner)}"></span></td>
-      <td>${esc(sideOf(g.owner))} ${esc(dsName(g.type))}</td><td>${label(g.hex)}?</td>
+      <td>${esc(sideOf(g.owner))} ${esc(dsName(g.type))}</td><td>${label(g.hex)}? ${arrow(g.facing)}</td>
       <td>?</td><td colspan="3">last seen turn ${g.turn}</td></tr>`);
   return `<div class="card units"><h3>Your units <span class="small">(${mine.length})</span></h3>
     ${mine.length ? `<div class="tablewrap"><table class="unittable">
@@ -364,8 +401,12 @@ function renderDatasheet(): string {
 
   let options = '';
   if (own && canOrder()) {
-    const path = orders[own.id] || [];
+    const path = pathOf(own.id);
     const used = pathCost(path);
+    const end = plannedEnd(own);
+    // Compass laid out like the hexsides: NW NE / W E / SW SE.
+    const compass = ([2, 1, 3, 0, 4, 5] as Facing[]).map((f) => `<button class="face${end.facing === f ? ' on' : ''}${own.facing === f ? ' current' : ''}"
+        data-action="face" data-facing="${f}" title="Face ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</button>`).join('');
     options = `<div class="ds-section"><h4>Orders</h4>
       <p>${path.length ? `Move to <b>${label(path[path.length - 1])}</b> via ${path.map(label).join(', ')}` : '<b>Hold position</b>'}
       <br><span class="small">Movement used ${used} of ${own.move}.</span></p>
@@ -373,7 +414,12 @@ function renderDatasheet(): string {
       <div class="row">
         <button class="secondary" data-action="undo" ${path.length ? '' : 'disabled'}>Undo step</button>
         <button class="secondary" data-action="hold" ${path.length ? '' : 'disabled'}>Hold position</button>
-      </div></div>`;
+      </div>
+      <h4>Facing at end of turn</h4>
+      <div class="facing-row"><div class="compass">${compass}</div>
+        <div class="small">Ends facing <b>${FACING_NAMES[end.facing]}</b> ${FACING_ARROWS[end.facing]}
+          ${end.auto ? (path.length ? '(direction of last step)' : '(unchanged)') : '(ordered)'}<br>
+          ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
   }
   return `<div class="card datasheet" style="border-top:4px solid ${color}">
     <div class="ds-head"><span class="counter" style="background:${ghost ? 'transparent' : color};border-color:${color};color:${ghost ? color : '#fff'}">${esc(ds.code)}</span>
@@ -383,6 +429,7 @@ function renderDatasheet(): string {
     <table class="stats">
       <tr><th>Strength</th><td>${strength === null ? '?' : `${strength} / ${ds.strength} ${strengthBar(strength, ds.strength, color)}`}</td></tr>
       <tr><th>Move</th><td>${ds.move}</td></tr>
+      <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}${ghost ? ' <span class="small">(when last seen)</span>' : ''}</td></tr>
       <tr><th>Sight</th><td>${ds.sight}${t.sightBonus && !ghost ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
       <tr><th>Location</th><td>${label(unit.hex)} · ${t.name}${t.defense ? ` <span class="small">(cover ${t.defense})</span>` : ''}</td></tr>
     </table>
@@ -400,7 +447,7 @@ function renderSide(): string {
   const log = data.lastTurn?.events.length
     ? `<ol class="log">${data.lastTurn.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`
     : '<p class="small">Nothing to report.</p>';
-  const moving = myUnits().filter((u) => orders[u.id]?.length).length;
+  const moving = myUnits().filter((u) => hasOrders(u.id)).length;
   return `
     <div class="card"><h3>${esc(g.name)}</h3>
       <div>${finished ? 'Final turn' : `Turn ${g.turn}`} of ${data.view.turnLimit}</div>
@@ -409,7 +456,7 @@ function renderSide(): string {
         ${esc(p.name)}${p.id === data.me.id ? ' (you)' : ''} — ${scores[p.id] ?? 0} pts
         ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : !finished ? `<span class="small">${p.submitted ? '✓ orders in' : 'thinking…'}</span>` : ''}</li>`).join('')}</ul>
       ${canOrder() ? `<div class="row submitrow"><button data-action="submit">${data.submittedAt && !dirty ? 'Resubmit orders' : 'Submit orders'}</button>
-        <span class="small">${moving} moving, ${myUnits().length - moving} holding</span></div>` : ''}
+        <span class="small">${moving} with orders, ${myUnits().length - moving} holding</span></div>` : ''}
     </div>
     ${renderDatasheet()}
     ${renderUnitTables()}
@@ -490,8 +537,15 @@ function buildShell(): void {
     if (action === 'submit') return void submit();
     if (action === 'close') { selected = null; return render(); }
     if (action === 'center' && selected) return focusUnit(selected);
-    if (action === 'undo' && selected) { orders[selected] = (orders[selected] || []).slice(0, -1); dirty = true; return render(); }
-    if (action === 'hold' && selected) { orders[selected] = []; dirty = true; return render(); }
+    if (action === 'undo' && selected) { setPath(selected, pathOf(selected).slice(0, -1)); return render(); }
+    if (action === 'hold' && selected) { setPath(selected, []); return render(); }
+    if (action === 'face' && selected) {
+      const f = Number(target.closest<HTMLElement>('[data-facing]')!.dataset.facing) as Facing;
+      orders[selected] = { ...orders[selected], path: pathOf(selected), facing: f };
+      dirty = true;
+      return render();
+    }
+    if (action === 'face-auto' && selected) { orders[selected] = { path: pathOf(selected) }; dirty = true; return render(); }
     const row = target.closest<HTMLElement>('tr[data-unit]');
     if (row) focusUnit(row.dataset.unit!);
   });
