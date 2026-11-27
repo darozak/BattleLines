@@ -116,6 +116,11 @@ rules give: movement, facing, combat (close combat and fire land together), mora
   when a link is opened). **End turn** and **Finish deployment** open a dialog with the turn's preview
   and the link: nothing is saved (replay-check state, address bar, recent games) until a share button is
   used, so **Cancel** simply goes back to giving orders.
+- **Pictures and previews** (#45, #46). The end-turn dialog can make a PNG of the turn in the browser: a copy
+  of the map's SVG, cropped to the turn's moves and attacks, with the map styles inlined, drawn on a canvas
+  with a caption band. It is shared as a file (Web Share), copied as HTML (`<a href=link><img></a>`) for
+  pasting into email, or downloaded. Link previews in chat apps use fixed Open Graph tags and `og-image.jpg`:
+  previews can't see the game after the `#`, so a per-game preview would need a server.
 - **Movement** is simulated in impulses: every moving unit takes one step per impulse, so contact and
   crowding are decided by who gets where first, not by the order of the orders. Step costs and the river
   rule come from `stepCost` and `stepProblem` in `src/shared/terrain.ts`, which the page also uses to

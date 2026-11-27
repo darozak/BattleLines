@@ -18,6 +18,8 @@ const firstH2 = body.indexOf('<h2');
 const rulesPage = readFileSync('public/index.html', 'utf8')
   .replace(/<title>.*<\/title>/, '<title>Rules · Battle Lines</title>')
   .replace(/<meta name="description" content="[^"]*">/, '<meta name="description" content="The rules of Battle Lines, a correspondence hex wargame.">')
+  .replaceAll('content="Battle Lines: your move"', 'content="Battle Lines: the rules"')
+  .replace('<meta property="og:url" content="https://darozak.github.io/BattleLines/">', '<meta property="og:url" content="https://darozak.github.io/BattleLines/rules.html">')
   .replace(/<main[\s\S]*<\/main>/, `<main class="rules">${body.slice(0, firstH2)}<nav class="contents"><h2>Contents</h2><ul>${contents}</ul></nav>${body.slice(firstH2)}</main>`)
   .replace(/\s*<script[^>]*><\/script>/, '');
 writeFileSync(`${out}/rules.html`, rulesPage);

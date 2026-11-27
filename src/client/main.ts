@@ -114,16 +114,66 @@ function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: 
  * result. Cancel or × goes back to giving orders.
  */
 function sendDialog(title: string, summaryHtml: string, hash: string, cardTitle: string, cardText: string, subject: string,
-  onShared: () => void, onDone: () => void): void {
+  onShared: () => void, onDone: () => void, picture?: { make: () => Promise<Blob>; name: string }): void {
   let shared = false;
+  const canShareFiles = (() => { try { return !!navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] }); } catch { return false; } })();
+  const canCopyImage = typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
   const dlg = openDialog(title, `<div class="dlg-summary">${summaryHtml}</div>
     ${shareCard(hash, cardTitle, cardText, subject)}
+    ${picture ? `<div class="card picture"><h3>Share a picture of the turn</h3>
+      <p class="small">A picture of the busy part of the board, to catch the eye in a post or an email.</p>
+      <img class="pic-preview" alt="A picture of the battlefield" hidden>
+      <div class="row">${canShareFiles ? '<button data-pic="share">Share picture…</button>' : ''}
+        ${canCopyImage ? `<button class="${canShareFiles ? 'secondary' : ''}" data-pic="copy">Copy picture with link</button>` : ''}
+        <button class="secondary" data-pic="download">Download picture</button></div>
+      <p class="small pic-note"></p></div>` : ''}
     <div class="row dlg-buttons"><button data-done hidden>Done</button><button class="secondary" data-dialog-close>Cancel</button></div>`);
-  wireShare(dlg, hash, subject, () => {
+  const markShared = () => {
     if (!shared) { shared = true; onShared(); }
     dlg.querySelector<HTMLButtonElement>('[data-done]')!.hidden = false;
-  });
+  };
+  wireShare(dlg, hash, subject, markShared);
   dlg.querySelector('[data-done]')!.addEventListener('click', () => { dlg.close(); onDone(); });
+  if (!picture) return;
+  // The picture (#46), made once, shown as a small preview, then shared, copied or downloaded.
+  const url = urlFor(hash);
+  const note = dlg.querySelector<HTMLElement>('.pic-note')!;
+  let made: Promise<Blob> | null = null;
+  const blob = () => (made ??= picture.make());
+  void blob().then((b) => {
+    const img = dlg.querySelector<HTMLImageElement>('.pic-preview')!;
+    img.src = URL.createObjectURL(b);
+    img.hidden = false;
+  }).catch(() => { note.textContent = 'The picture could not be made on this device.'; });
+  dlg.querySelectorAll<HTMLButtonElement>('[data-pic]').forEach((btn) => {
+    btn.onclick = async () => {
+      let b: Blob;
+      try { b = await blob(); } catch { note.textContent = 'The picture could not be made on this device.'; return; }
+      markShared();
+      const kind = btn.dataset.pic;
+      if (kind === 'share') {
+        try { await navigator.share({ files: [new File([b], picture.name, { type: 'image/png' })], title: subject, text: `${subject}\n${url}` }); } catch { /* cancelled */ }
+      } else if (kind === 'copy') {
+        // The picture wrapped in the link, for pasting into an email; the plain link for anywhere else.
+        const dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(b); });
+        const html = `<a href="${esc(url)}"><img src="${dataUrl}" alt="${esc(subject)}" width="600"></a><br><a href="${esc(url)}">${esc(subject)}</a>`;
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([url], { type: 'text/plain' }) })]);
+          note.textContent = 'Copied: paste it into an email. The picture opens the game when clicked.';
+        } catch {
+          try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); note.textContent = 'Picture copied (without the link: paste the link too).'; }
+          catch { note.textContent = 'This browser would not copy the picture: use Download picture.'; }
+        }
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = picture.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        note.textContent = `Saved as ${picture.name}: attach it to your post or email, with the link.`;
+      }
+    };
+  });
 }
 
 /** Who gets the link next, and what to tell them. */
@@ -339,12 +389,12 @@ function deployScreen(game: Game): void {
       taken: Object.fromEntries(state.players.filter((p) => state.armies[p.id]).map((p) => [state.armies[p.id]!, link.players[playerIndex(p.id)]])),
       zone: zoneOf(state, playerId(me)),
       pointLimit: state.pointLimit,
-      onFinish: async (d, summaryHtml) => {
+      onFinish: async (d, summaryHtml, picture) => {
         const ended = deploy(game, d);
         const hash = await encodeGame(ended.link);
         const t = sendText(ended.state, ended.link, ended.events);
         sendDialog('Finish deployment', summaryHtml, hash, t.title, t.text, t.subject,
-          () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events));
+          () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events), { make: picture, name: pictureName(ended) });
       },
     },
   });
@@ -367,15 +417,18 @@ function playScreen(game: Game): void {
     notice,
     preview: (orders) => previewTurn(state, orders),
     attackOptions: (unitId, hex, facing) => attackOptions(state, unitId, hex, facing),
-    onEndTurn: async (orders, summaryHtml) => {
+    onEndTurn: async (orders, summaryHtml, picture) => {
       const ended = endTurn(game, orders);
       const hash = await encodeGame(ended.link);
       const t = sendText(ended.state, ended.link, ended.events);
       sendDialog('End turn', summaryHtml, hash, t.title, t.text, t.subject,
-        () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events));
+        () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events), { make: picture, name: pictureName(ended) });
     },
   });
 }
+
+/** A file name for the turn's picture (#46), e.g. "battle-lines-round-3.png". */
+const pictureName = (g: Game) => `battle-lines-${g.state.phase === 'deploy' ? 'deployment' : `round-${g.state.turn}`}.png`;
 
 /** The turn is sent (a share button was used): remember it, for the replay check and the recent-games list. */
 function commitTurn(ended: Game, hash: string, me: number): void {
@@ -389,7 +442,7 @@ function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): 
   const { link, state } = game;
   const finished = state.finished;
   const t = sendText(state, link, events);
-  mountBoard(app, {
+  const board = mountBoard(app, {
     gameName: link.name,
     round: state.turn,
     turnLimit: state.turnLimit,
@@ -403,7 +456,7 @@ function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): 
     actions: [{ id: 'send-again', label: 'Send the link again' }],
     afterRender: (root) => {
       const btn = root.querySelector<HTMLButtonElement>('[data-action-id="send-again"]');
-      if (btn) btn.onclick = () => sendDialog('Send the link', '', hash, t.title, t.text, t.subject, () => {}, () => {});
+      if (btn) btn.onclick = () => sendDialog('Send the link', '', hash, t.title, t.text, t.subject, () => {}, () => {}, { make: board.picture, name: pictureName(game) });
     },
   });
 }

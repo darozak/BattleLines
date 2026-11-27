@@ -32,8 +32,11 @@ round, scenario and scores are in a slim bar above it, and the **Report** button
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
 4. **End your turn.** Your units move, then attack or fire at the enemies you picked; badly damaged enemies check
    their morale; then you score for the objectives you hold. **End turn** opens a box showing exactly what
-   your turn will do and the link for the next player, with buttons to copy, email or share it. **Cancel**
-   takes you back to your orders; once you've sent the link, **Done** shows the result.
+   your turn will do and the link for the next player, with buttons to copy, email or share it. It also
+   offers a **picture of the turn**, cropped to where the action is, to share with the link (on phones), copy
+   with the link built in (paste it into an email and the picture opens the game), or download. **Cancel**
+   takes you back to your orders; once you've sent the link, **Done** shows the result. Shared links show a
+   Battle Lines preview card in chat apps and social media.
 5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,
    and plays their turn. Each link starts with whose turn it is, for example `…/#Deploy-Cara/…` or `…/#Round3-Bob/…`.
 6. **Win.** The scenario decides how points are scored: **Hold the Field**, **King of the Hill**,
