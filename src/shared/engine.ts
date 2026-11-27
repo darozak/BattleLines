@@ -258,22 +258,33 @@ export function canFireAt(state: GameState, attacker: Unit, hex: HexKey, facing:
 }
 
 /**
- * Enemies a unit could attack from a hex: every living enemy next to it (close combat, weakest first);
- * if there are none, every enemy it can fire at (nearest first, then weakest). The player picks one.
+ * The adjacent enemies that stop a unit at `hex` from firing: those facing it, with the unit on one of
+ * their front three hexsides (#32). Enemies showing it their flank or rear don't stop it.
+ */
+export function pinnedBy(state: GameState, attacker: Unit, hex: HexKey): Unit[] {
+  const adj = new Set(neighbors(hex));
+  return alive(state).filter((o) => o.owner !== attacker.owner && adj.has(o.hex) && arcOf(o.hex, o.facing, hex) === 'front');
+}
+
+/**
+ * Enemies a unit could attack from a hex, for the player to pick from: every living enemy next to it
+ * (close combat, weakest first), then, unless an adjacent enemy faces it, every enemy it can fire at
+ * (nearest first, then weakest).
  */
 export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey, facing: Facing = attacker.facing): Unit[] {
   const adj = new Set(neighbors(hex));
   const enemies = alive(state).filter((o) => o.owner !== attacker.owner);
-  const close = enemies.filter((o) => adj.has(o.hex));
-  if (close.length) return close.sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
-  return enemies.filter((o) => canFireAt(state, attacker, hex, facing, o.hex))
+  const close = enemies.filter((o) => adj.has(o.hex)).sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
+  if (pinnedBy(state, attacker, hex).length) return close;
+  const fire = enemies.filter((o) => canFireAt(state, attacker, hex, facing, o.hex))
     .sort((a, b) => distance(hex, a.hex) - distance(hex, b.hex) || a.strength - b.strength || a.id.localeCompare(b.id));
+  return [...close, ...fire];
 }
 
 function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrders, events: GameEvent[]): void {
   // Attacks are optional and deliberate (#31): a unit attacks only the enemy its orders name, and
-  // only if that enemy is in reach after movement: next to it (close combat), or, with no enemy next
-  // to it, in range, in front and in sight (fire). All attacks land together, after movement.
+  // only if that enemy is in reach after movement: next to it (close combat), or, unless an adjacent
+  // enemy faces it (#32), in range, in front and in sight (fire). All attacks land together, after movement.
   const units = alive(state);
   const hits = new Map<UnitId, number>();
   for (const u of units) {

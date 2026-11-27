@@ -6,7 +6,7 @@ dice: the page shows exactly what your orders will do before you end your turn. 
 the game as it plays on the [live site](https://darozak.github.io/BattleLines/).
 
 <!-- generated:version -->
-These rules are version **11**, the same as the game's link version: a link from another version won't open.
+These rules are version **12**, the same as the game's link version: a link from another version won't open.
 <!-- /generated -->
 
 The numbers in these rules are placeholders while the game is being playtested, and will change.
@@ -122,7 +122,9 @@ edges. Every hex also has an **elevation** (the number shown in it).
 
 1. A unit with a range on its datasheet may **fire** at an enemy that isn't next to it. You pick the
    target the same way as for close combat (section 6), and firing is just as optional.
-2. A unit with an enemy next to it after movement can't fire: it can only attack in close combat.
+2. An enemy next to the unit that **faces** it (the unit is on one of that enemy's front three hexsides,
+   section 5) stops it firing: it can only attack in close combat. Enemies next to it that show it their
+   flank or rear don't stop it, so it may choose between close combat and firing past them.
 3. The target must be, once the unit has moved and turned:
    - within its **range** in hexes;
    - in its **front** (section 5);

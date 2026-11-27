@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
 import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
 import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
-import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, ARC_BONUS, canFireAt, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
+import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, ARC_BONUS, canFireAt, pinnedBy, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
 import type { AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 /** Simple unit types for rule tests (the eras' own units are tested separately). */
@@ -277,7 +277,7 @@ test('ranged attacks: fire at an enemy in range, in the front arc and in sight',
   assert.ok(noShot({ ...s, units: [{ ...shooter, type: 'infantry' }, unit('b', 'p1', 'infantry', '6,5')] }));
 });
 
-test('ranged attacks: the player picks the target; an enemy next to the unit means close combat', () => {
+test('ranged attacks: the player picks the target; an adjacent enemy facing the unit stops it firing', () => {
   const s = openState();
   const shooter = unit('a', 'p0', 'rifle', '4,5', { facing: facingToward('4,5', '7,5') });
   s.units = [shooter, unit('near', 'p1', 'infantry', '6,5'), unit('far', 'p1', 'scout', '8,5')];
@@ -285,8 +285,20 @@ test('ranged attacks: the player picks the target; an enemy next to the unit mea
   assert.equal(atk({ a: { path: [], target: 'near' } }).target, 'near');
   assert.equal(atk({ a: { path: [], target: 'far' } }).target, 'far', 'the ordered target');
   assert.deepEqual(attackOptions(s, 'a', '4,5').map((o) => o.target.id), ['near', 'far'], 'options nearest first');
-  s.units.push(unit('adj', 'p1', 'infantry', '5,5'));
-  assert.equal(play(s, 0, { a: { path: [], target: 'far' } }).events.some((e) => e.type === 'attack'), false, "can't fire past an enemy next to it");
+  // An enemy next to the shooter that faces it (the shooter on its front three hexsides) stops it firing.
+  s.units.push(unit('adj', 'p1', 'infantry', '4,6', { facing: facingToward('4,6', '4,5') }));
+  assert.deepEqual(pinnedBy(s, shooter, '4,5').map((u) => u.id), ['adj']);
+  assert.equal(play(s, 0, { a: { path: [], target: 'far' } }).events.some((e) => e.type === 'attack'), false, "can't fire past an enemy facing it");
+  assert.deepEqual(attackOptions(s, 'a', '4,5').map((o) => o.target.id), ['adj'], 'close combat only');
+  // Turned away (the shooter in its rear), the same enemy doesn't stop it: close combat or fire.
+  s.units[3].facing = facingToward('4,5', '4,6');
+  assert.equal(arcOf('4,6', s.units[3].facing, '4,5'), 'rear');
+  assert.deepEqual(pinnedBy(s, shooter, '4,5'), []);
+  assert.deepEqual(attackOptions(s, 'a', '4,5').map((o) => o.target.id), ['adj', 'near', 'far']);
+  const past = play(s, 0, { a: { path: [], target: 'far' } }).events.find((e): e is AttackEvent => e.type === 'attack')!;
+  assert.deepEqual([past.target, past.ranged], ['far', true], 'fires past an enemy that is not facing it');
+  // Facing it again: close combat against the adjacent enemy only.
+  s.units[3].facing = facingToward('4,6', '4,5');
   const close = atk({ a: { path: [], target: 'adj' } });
   assert.deepEqual([close.target, close.ranged, close.tally[0].label], ['adj', false, 'A strength']);
 });

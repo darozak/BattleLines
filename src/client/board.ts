@@ -1,7 +1,7 @@
 // The battle board: a scrollable, zoomable hex map with a side panel (unit tables, datasheets,
 // orders, reports). Clicking a unit, in the table or on the map, zooms the map to it and opens
 // its datasheet; for the player's own units the datasheet has their move and facing orders.
-import { parse, neighbors, distance, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
+import { parse, neighbors, distance, arcOf, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN, stepCost, fordsRiver } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
@@ -592,11 +592,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       const opts = targetOptions(own);
       const made = pvAttacks().find((e) => e.attacker === own.id);
       const fires = opts.some((o) => o.ranged);
+      const closes = opts.some((o) => !o.ranged);
+      // An adjacent enemy facing the unit stops it firing (#32).
+      const pinners = ds.range ? others().filter((e) => neighbors(endHex).includes(e.hex) && arcOf(e.hex, e.facing, endHex) === 'front') : [];
       const ordered = orders[own.id]?.target;
       const lost = ordered && !opts.some((o) => o.target.id === ordered) ? units().find((u) => u.id === ordered) : undefined;
       options += `<div class="ds-section"><h4>Combat</h4>${lost ? `<p class="small warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from ${label(endHex)}: no attack.</p>` : ''}${!opts.length
         ? `<p class="small">No enemy next to ${label(endHex)}${ds.range ? ` and none to fire at (within ${ds.range} hexes, in front and in sight)` : ''}: no attack this turn.</p>`
-        : `<p class="small">Attacking is optional. After moving, ${esc(own.name)} can ${fires ? `fire at an enemy within ${ds.range} hexes, in front and in sight` : 'attack an enemy next to it'}: pick one here or click it on the map.</p>
+        : `<p class="small">Attacking is optional. After moving, ${esc(own.name)} can ${[closes ? 'attack an enemy next to it' : '', fires ? `fire at an enemy within ${ds.range} hexes, in front and in sight` : ''].filter(Boolean).join(' or ')}: pick one here or click it on the map.</p>
+          ${pinners.length ? `<p class="small">It can't fire: ${pinners.map((e) => `${esc(sideOf(e.owner))} ${esc(e.name)}`).join(' and ')} ${pinners.length > 1 ? 'face' : 'faces'} it from next door.</p>` : ''}
           <div class="targets"><button class="target${ordered ? '' : ' on'}" data-action="target-none"><b>Don't attack</b></button>${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
             <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.ranged ? ` (fire, ${distance(endHex, o.target.hex)} hexes${o.arc === 'front' ? '' : `, ${o.arc}`})` : o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
           ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` + (pvMorale(made.target) ? moraleHtml(pvMorale(made.target)!) : '') : ''}
