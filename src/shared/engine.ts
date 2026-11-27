@@ -6,7 +6,7 @@
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
 import { terrainAt, elevationAt, stepCost, hasRiver, hasBridge, RIVER_ATTACK, BRIDGE_ATTACK } from './terrain.js';
 import type {
-  AttackEvent, Datasheet, Facing, GameEvent, GameState, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
+  AttackEvent, Datasheet, Facing, GameEvent, GameState, MoraleEvent, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
 
 const alive = (state: GameState): Unit[] => state.units.filter((u) => u.strength > 0);
@@ -264,6 +264,70 @@ function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrder
     const u = state.units.find((x) => x.id === id)!;
     u.strength = Math.max(0, u.strength - n);
     if (u.strength === 0) events.push({ type: 'destroyed', unit: u.id, owner: u.owner, unitType: u.type, hex: u.hex });
+  }
+  resolveMorale(state, [...hits.keys()], events);
+}
+
+// ---------------------------------------------------------------- morale (PLACEHOLDER numbers)
+
+/** Rallying units help friends within this many hexes. */
+export const RALLY_RANGE = 2;
+/** A unit this many hexes or fewer from its army's main body is not isolated. */
+export const MAIN_BODY_RANGE = 3;
+/** Beyond MAIN_BODY_RANGE, −1 morale for every this many hexes further (or part of it). */
+export const ISOLATION_STEP = 3;
+
+/**
+ * The centre of a player's army: the living unit with the smallest total distance to the others
+ * (ties broken by unit id), or undefined if the player has no units.
+ */
+export function mainBody(state: GameState, owner: PlayerId): Unit | undefined {
+  const army = alive(state).filter((u) => u.owner === owner);
+  let best: Unit | undefined;
+  let bestSum = Infinity;
+  for (const u of [...army].sort((a, b) => a.id.localeCompare(b.id))) {
+    const sum = army.reduce((n, o) => n + distance(u.hex, o.hex), 0);
+    if (sum < bestSum) { best = u; bestSum = sum; }
+  }
+  return best;
+}
+
+/** Whether a unit with this much strength left must check morale: half its starting strength or less. */
+export const mustCheckMorale = (state: GameState, unit: Unit): boolean =>
+  unit.strength > 0 && unit.strength * 2 <= stats(state, unit).strength;
+
+/** The morale tally for a unit as things stand: morale, rallying friends and isolation, against losses. */
+export function moraleTally(state: GameState, unit: Unit): Pick<MoraleEvent, 'tally' | 'morale' | 'losses' | 'held'> {
+  const ds = stats(state, unit);
+  const tally: MoraleEvent['tally'] = [{ label: `${ds.name} morale`, value: ds.morale }];
+  const friends = alive(state).filter((u) => u.owner === unit.owner && u.id !== unit.id);
+  for (const f of friends) {
+    const rally = stats(state, f).rally;
+    const d = distance(unit.hex, f.hex);
+    if (rally > 0 && d <= RALLY_RANGE) tally.push({ label: `rallied by ${f.name} (${d} hex${d === 1 ? '' : 'es'} away)`, value: rally });
+  }
+  const centre = mainBody(state, unit.owner);
+  const far = centre ? distance(unit.hex, centre.hex) - MAIN_BODY_RANGE : 0;
+  if (far > 0) {
+    tally.push({ label: `isolated (${far + MAIN_BODY_RANGE} hexes from the main body at ${centre!.name})`, value: -Math.ceil(far / ISOLATION_STEP) });
+  }
+  const morale = tally.reduce((n, t) => n + t.value, 0);
+  const losses = ds.strength - unit.strength;
+  return { tally, morale, losses, held: morale > losses };
+}
+
+function resolveMorale(state: GameState, hitIds: UnitId[], events: GameEvent[]): void {
+  // Every unit that took hits this turn and is down to half strength or less checks morale. All
+  // checks are made against the battlefield as it stands after the attacks, then failures disband.
+  const checks: MoraleEvent[] = [];
+  for (const id of [...hitIds].sort()) {
+    const u = state.units.find((x) => x.id === id)!;
+    if (!mustCheckMorale(state, u)) continue;
+    checks.push({ type: 'morale', unit: u.id, owner: u.owner, unitType: u.type, hex: u.hex, ...moraleTally(state, u) });
+  }
+  for (const c of checks) {
+    events.push(c);
+    if (!c.held) state.units.find((x) => x.id === c.unit)!.strength = 0;
   }
 }
 

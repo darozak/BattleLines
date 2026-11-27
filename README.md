@@ -20,8 +20,8 @@ turn at a time.
    Click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
    more than one enemy will be in reach, which one to attack.
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
-4. **End your turn.** Your units move, then attack any enemy next to them, then score for the
-   objectives they hold. The page gives you a link for the next player, with buttons to copy,
+4. **End your turn.** Your units move, then attack any enemy next to them; badly damaged enemies check
+   their morale; then you score for the objectives you hold. The page gives you a link for the next player, with buttons to copy,
    email or share it.
 5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,
    and plays their turn. Each link starts with whose turn it is, for example `…/#Deploy-Cara/…` or `…/#Round3-Bob/…`.
@@ -42,9 +42,12 @@ turn at a time.
 - **Elevation**: every hex has a height. Most units can climb or descend only one level per step
   (light troops can manage two), so steep drops act as cliffs. Attacking from higher ground is stronger;
   attacking uphill is weaker.
-- **Units with datasheets**: each with its own point cost, move, climb, sight and strength. Light troops
+- **Units with datasheets**: each with its own point cost, move, climb, sight, strength and morale. Light troops
   climb two levels per step; the rest climb one.
   Every unit faces one of the six hexsides; attacks on a unit's flank or rear are stronger.
+- **Morale**: a unit battered down to half strength or less checks its morale. Rallying elites nearby
+  steady it; straying far from the army's main body weakens it. If its morale doesn't beat its losses, it
+  disbands. Like combat, the check is a tally you see before you end your turn.
 - **Nothing hidden**: every player sees the whole battlefield, as in chess.
 - **No dice**: combat is decided by a tally of modifiers (strength, flank or rear, height, cover), and the
   page shows you the tally and the result of every attack before you end your turn. When the link

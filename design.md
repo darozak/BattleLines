@@ -56,7 +56,8 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 - There are no dice. Every attack's result is fixed by a tally of modifiers, so the same position and the
   same orders always give the same result. (The seed in the link only generates the map.)
 - While a player plans, the page runs their orders through the rules engine and shows exactly what ending
-  the turn would do: each attack as a tally sheet listing every modifier, the units destroyed, units that
+  the turn would do: each attack and each morale check as a tally sheet listing every modifier, the units
+  destroyed or disbanded, units that
   would stop early on contact, and points scored. The attacks are drawn on the map with their hits.
 - Each link carries the orders of the last round. When it's your turn again, your browser replays them from
   the position you sent and checks they produce what you received. An altered position shows a warning.
@@ -104,9 +105,19 @@ Everything is after `#`, which browsers never send to the web server, so the hos
    that enemy is in reach, otherwise the weakest. All attacks land together.
    - **Attack** = the attacker's strength, +1 from the target's flank, +2 from its rear, + the attacker's
      height above the target (or − its height below it, when attacking uphill).
-   - **Defence** = 3 (base), + the cover of the target's hex (woods and hills 1, ruins 2).
+     Attacking across a river is −2, across a bridge −1.
+   - **Defence** = 3 (base), + the cover of the target's hex (light forest and hills 1; dense forest, ruins
+     and villages 2).
    - **Hits** = attack − defence, never below 0. Each hit removes one strength point; a unit at 0 is destroyed.
-4. **Scoring:** the active player scores 1 for each objective they hold with no enemy adjacent.
+4. **Morale:** each unit that took hits, survived, and is down to half its starting strength or less checks
+   morale, all against the battlefield as it stands after the attacks.
+   - **Morale** = the unit's morale (on its datasheet), + the rally value of each friendly rallying unit
+     (guards and other elites, rally 1) within 2 hexes, − 1 for every 3 hexes (or part of 3) it stands more
+     than 3 hexes from its army's **main body**: the army's centre unit, the one with the smallest total
+     distance to the rest.
+   - **Losses** = strength lost since the battle began.
+   - The unit holds if morale is greater than losses; otherwise it breaks and disbands, leaving the battle.
+5. **Scoring:** the active player scores 1 for each objective they hold with no enemy adjacent.
 
 ## Versioning
 The rules, maps and datasheets are built into the code. Every link records its format version

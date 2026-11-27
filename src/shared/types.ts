@@ -31,6 +31,10 @@ export interface Datasheet {
   strength: number;
   /** The largest change in elevation the unit can make in one step (most units 1). */
   climb: number;
+  /** Steadiness in a morale check: a badly damaged unit holds while its morale tally beats its losses. */
+  morale: number;
+  /** Morale added to each friendly unit within RALLY_RANGE hexes that checks morale (0 for most units). */
+  rally: number;
 }
 
 export interface GameMap {
@@ -166,6 +170,23 @@ export interface DestroyedEvent {
   unitType: string;
   hex: HexKey;
 }
+/**
+ * A morale check: a unit that took hits this turn and is down to half its strength or less.
+ * It holds if its morale tally beats its losses; otherwise it disbands and leaves the battle.
+ */
+export interface MoraleEvent {
+  type: 'morale';
+  unit: UnitId;
+  owner: PlayerId;
+  unitType: string;
+  hex: HexKey;
+  /** Every modifier on the unit's morale. */
+  tally: { label: string; value: number }[];
+  morale: number;
+  /** Strength lost since the battle began. */
+  losses: number;
+  held: boolean;
+}
 export interface ScoreEvent {
   type: 'score';
   player: PlayerId;
@@ -183,7 +204,7 @@ export interface DeployEvent {
   units: number;
   points: number;
 }
-export type GameEvent = DeployEvent | MoveEvent | HaltEvent | TurnEvent | ClashEvent | AttackEvent | DestroyedEvent | ScoreEvent | GameOverEvent;
+export type GameEvent = DeployEvent | MoveEvent | HaltEvent | TurnEvent | ClashEvent | AttackEvent | DestroyedEvent | MoraleEvent | ScoreEvent | GameOverEvent;
 
 // ---------------------------------------------------------------- the board as shown to a player
 

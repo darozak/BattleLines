@@ -4,9 +4,10 @@
 import { parse, neighbors, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN, stepCost } from '../shared/terrain.js';
 import type {
-  AttackEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
+  AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
 import type { AttackOption, TurnPreview } from '../shared/engine.js';
+import { RALLY_RANGE } from '../shared/engine.js';
 import type { Army, Deployment, Placement } from '../shared/setup.js';
 import { esc } from './util.js';
 
@@ -435,6 +436,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}${arc}: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
       }
       case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
+      case 'morale': return e.held
+        ? `${unitDesc(e.unit, e.owner, e.unitType)} held at ${label(e.hex)}: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`
+        : `${unitDesc(e.unit, e.owner, e.unitType)} broke at ${label(e.hex)} and disbanded: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`;
       case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} for holding ${label(e.hex)}.`;
       case 'gameover': return `Game over. ${e.reason}`;
       default: return (e as { type: string }).type;
@@ -443,7 +447,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   const involves = (e: GameEvent, id: UnitId): boolean => {
     switch (e.type) {
-      case 'move': case 'halt': case 'turn': case 'destroyed': return e.unit === id;
+      case 'move': case 'halt': case 'turn': case 'destroyed': case 'morale': return e.unit === id;
       case 'clash': return e.units.includes(id);
       case 'attack': return e.attacker === id || e.target === id;
       default: return false;
@@ -457,7 +461,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (path.length) return `to ${label(end.hex)}${turn}`;
     return orders[u.id]?.facing !== undefined && end.facing !== u.facing ? `turn ${FACING_ARROWS[end.facing]}` : 'hold';
   }
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
   /** A combat tally sheet: every modifier on each side, the totals, and the result. */
   function tallyHtml(t: Pick<AttackEvent, 'tally' | 'attack' | 'defence' | 'hits'>): string {
@@ -470,6 +474,18 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     </table>`;
   }
 
+  /** A morale tally sheet: the unit's morale and every modifier, against its losses. */
+  function moraleHtml(m: MoraleEvent): string {
+    return `<table class="tally">
+      <tr class="head"><th colspan="2">Morale</th></tr>${m.tally.map((l) => `<tr><td>${esc(l.label)}</td><td>${l.value < 0 ? '−' : '+'}${Math.abs(l.value)}</td></tr>`).join('')}
+      <tr class="total"><td>Morale</td><td>${m.morale}</td></tr>
+      <tr class="total"><td>Losses (strength lost)</td><td>${m.losses}</td></tr>
+      <tr class="result"><td>${m.held ? `Holds (${m.morale} beats ${m.losses})` : `Breaks and disbands (${m.morale} does not beat ${m.losses})`}</td><td>${m.held ? '✓' : '✗'}</td></tr>
+    </table>`;
+  }
+  const pvMorale = (id: UnitId): MoraleEvent | undefined =>
+    (pv?.events ?? []).find((e): e is MoraleEvent => e.type === 'morale' && e.unit === id);
+
   /** What the attacks on one unit add up to this turn. */
   function outcomeOn(targetId: UnitId): string {
     const on = pvAttacks().filter((e) => e.target === targetId);
@@ -477,7 +493,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const total = on.reduce((n, e) => n + e.hits, 0);
     const target = units().find((u) => u.id === targetId);
     const after = Math.max(0, (target?.strength ?? 0) - total);
-    return `${plural(on.length, 'attack')} on ${esc(unitDesc(targetId, target?.owner ?? '', target?.type))}: ${plural(total, 'hit')}, strength ${target?.strength} → ${after}${after === 0 ? ' — <b>destroyed</b>' : ''}.`;
+    const m = pvMorale(targetId);
+    const morale = m ? (m.held ? ` It checks morale and holds (${m.morale} beats ${m.losses}).` : ` It checks morale and <b>disbands</b> (${m.morale} does not beat ${m.losses}).`) : '';
+    return `${plural(on.length, 'attack')} on ${esc(unitDesc(targetId, target?.owner ?? '', target?.type))}: ${plural(total, 'hit')}, strength ${target?.strength} → ${after}${after === 0 ? ' — <b>destroyed</b>' : ''}.${morale}`;
   }
 
   const arrow = (f: Facing) => `<span class="arrow" title="facing ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</span>`;
@@ -553,13 +571,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         : `<p class="small">After moving, ${esc(own.name)} attacks one enemy next to it${opts.length > 1 ? '. Choose which:' : ':'}</p>
           <div class="targets">${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
             <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
-          ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` : ''}
+          ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` + (pvMorale(made.target) ? moraleHtml(pvMorale(made.target)!) : '') : ''}
           ${orders[own.id]?.target ? '<button class="link" data-action="target-auto">Clear target (attack the weakest)</button>' : ''}`}</div>`;
     }
     if (enemy && ctx.mode === 'orders') {
       const on = pvAttacks().filter((e) => e.target === enemy.id);
       options = `<div class="ds-section"><h4>Attacks on this unit this turn</h4>${on.length
-        ? on.map((e) => `<p class="small"><b>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))}</b>${e.arc === 'front' ? '' : ` (${e.arc})`}</p>${tallyHtml(e)}`).join('') + `<p class="small">${outcomeOn(enemy.id)}</p>`
+        ? on.map((e) => `<p class="small"><b>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))}</b>${e.arc === 'front' ? '' : ` (${e.arc})`}</p>${tallyHtml(e)}`).join('') + `<p class="small">${outcomeOn(enemy.id)}</p>` + (pvMorale(enemy.id) ? moraleHtml(pvMorale(enemy.id)!) : '')
         : '<p class="small">None of your units will attack it.</p>'}</div>`;
     }
     return `<div class="card datasheet" style="border-top:4px solid ${color}">
@@ -570,6 +588,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <tr><th>Strength</th><td>${unit.strength} / ${ds.strength} ${strengthBar(unit.strength, ds.strength, color)}</td></tr>
         <tr><th>Move</th><td>${ds.move}</td></tr>
         <tr><th>Climb</th><td>${ds.climb} <span class="small">(level${ds.climb === 1 ? '' : 's'} up or down per step)</span></td></tr>
+        <tr><th>Morale</th><td>${ds.morale}${ds.rally ? ` · rallies friends within ${RALLY_RANGE} hexes (+${ds.rally})` : ''}</td></tr>
         <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</td></tr>
         <tr><th>Sight</th><td>${ds.sight}${t.sightBonus ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
         <tr><th>Location</th><td>${label(unit.hex)} · ${t.name}${t.defense ? ` <span class="small">(cover ${t.defense})</span>` : ''} · elevation ${elevationAt(unit.hex)}</td></tr>
@@ -587,7 +606,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const moving = myUnits().filter((u) => hasOrders(u.id)).length;
     const attacks = pvAttacks();
     const destroyed = (pv?.events ?? []).filter((e) => e.type === 'destroyed').length;
-    const summary = `${plural(attacks.length, 'attack')}, ${plural(attacks.reduce((n, e) => n + e.hits, 0), 'hit')}${destroyed ? `, ${destroyed} destroyed` : ''}`;
+    const disbanded = (pv?.events ?? []).filter((e) => e.type === 'morale' && !e.held).length;
+    const summary = `${plural(attacks.length, 'attack')}, ${plural(attacks.reduce((n, e) => n + e.hits, 0), 'hit')}${destroyed ? `, ${destroyed} destroyed` : ''}${disbanded ? `, ${disbanded} disbanded` : ''}`;
     const reports = ctx.reports.filter((r) => r.events.length);
     return `
       ${ctx.topCard ?? ''}
@@ -622,14 +642,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       const affordable = used + u.points <= d.pointLimit;
       const n = placements.filter((pl) => pl.type === type).length;
       return `<tr class="${placing === type ? 'sel' : ''}"><td><span class="counter mini">${esc(u.code)}</span></td><td>${esc(u.name)}${n ? ` <span class="small">×${n}</span>` : ''}</td>
-        <td>${u.move}</td><td>${u.climb}</td><td>${u.strength}</td><td><b>${u.points}</b></td>
+        <td>${u.move}</td><td>${u.climb}</td><td>${u.strength}</td><td>${u.morale}${u.rally ? '★' : ''}</td><td><b>${u.points}</b></td>
         <td><button class="small-btn${placing === type ? '' : ' secondary'}" data-action="place" data-type="${esc(type)}" ${affordable ? '' : 'disabled'} title="${placing === type ? 'Placing: click hexes in your zone' : 'Place this unit'}">${placing === type ? 'Placing' : 'Place'}</button></td></tr>`;
     }).join('');
     return `<div class="card deploy"><h3>${esc(army.name)} <button class="link" data-action="army-change">change army</button></h3>
       <div class="points"><span class="bar"><span style="width:${Math.min(100, (used / d.pointLimit) * 100)}%"></span></span>
         <b>${used}</b> of ${d.pointLimit} points · ${plural(placements.length, 'unit')}</div>
       <div class="tablewrap"><table class="unittable roster">
-        <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th>Pts</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th title="Morale (★ rallies nearby friends)">Mor</th><th>Pts</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <p class="small">${placing ? `Click a highlighted hex in your starting zone to place a ${esc(view.datasheets[placing].name)}. Click a placed unit to remove it.` : 'Press Place, then click hexes in your starting zone (highlighted on the map).'}</p>
       <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button></div></div>`;
@@ -646,6 +666,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       }
       if (e.type === 'halt') return `<li class="warn">${esc(unitDesc(e.unit, e.owner))} will stop at ${label(e.hex)} (${esc(e.reason)}).</li>`;
       if (e.type === 'destroyed') return `<li><b>${esc(unitDesc(e.unit, e.owner, e.unitType))} will be destroyed.</b></li>`;
+      if (e.type === 'morale') {
+        return `<li><details><summary>${esc(unitDesc(e.unit, e.owner, e.unitType))} checks morale: ${e.morale} vs ${plural(e.losses, 'loss', 'losses')}, ${e.held ? 'holds' : '<b>disbands</b>'}</summary>${moraleHtml(e)}</details></li>`;
+      }
       if (e.type === 'score') return `<li>You will score ${e.points} for holding ${label(e.hex)}.</li>`;
       if (e.type === 'gameover') return `<li><b>The battle will end: ${esc(e.reason)}</b></li>`;
       return '';
@@ -653,7 +676,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     return `<div class="card preview"><h3>If you end your turn now</h3>
       ${items.length ? `<ul class="log" data-scroll="preview">${items.join('')}</ul>` : '<p class="small">No attacks and no points this turn.</p>'}
       ${halts.length ? '<p class="small">Units stop early when they come next to an enemy.</p>' : ''}
-      <p class="small">There are no dice: this is exactly what will happen. Open an attack to see its tally.</p></div>`;
+      <p class="small">There are no dice: this is exactly what will happen. Open an attack or a morale check to see its tally.</p></div>`;
   }
 
   function renderBanner(): string {

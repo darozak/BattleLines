@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
 import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
 import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
-import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE } from '../src/shared/engine.js';
-import type { AttackEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
+import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
+import type { AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 /** Simple unit types for rule tests (the eras' own units are tested separately). */
 const TEST_UNITS: Record<string, Datasheet> = {
-  infantry: { name: 'Infantry', code: 'I', points: 20, move: 4, sight: 5, strength: 4, climb: 1 },
-  scout: { name: 'Scout', code: 'S', points: 15, move: 6, sight: 7, strength: 2, climb: 2 },
-  heavy: { name: 'Heavy', code: 'H', points: 40, move: 3, sight: 4, strength: 6, climb: 1 },
+  infantry: { name: 'Infantry', code: 'I', points: 20, move: 4, sight: 5, strength: 4, climb: 1, morale: 3, rally: 0 },
+  scout: { name: 'Scout', code: 'S', points: 15, move: 6, sight: 7, strength: 2, climb: 2, morale: 2, rally: 0 },
+  heavy: { name: 'Heavy', code: 'H', points: 40, move: 3, sight: 4, strength: 6, climb: 1, morale: 4, rally: 1 },
 };
 const START = [
   ['1,4', '1,7', '2,5', '0,6'], ['14,4', '14,7', '13,6', '15,5'], ['6,1', '9,1', '7,2', '8,0'], ['6,10', '9,10', '8,9', '7,11'],
@@ -245,6 +245,61 @@ test('combat: no dice, hits = attack - defence, every modifier on the tally', ()
   s.map.terrain[5 * 16 + 6] = 'dense_forest';
   assert.equal(combatTally(s, s.units[0], '5,5', s.units[1]).defence, BASE_DEFENCE + 2);
   assert.equal(inWoods.hits, 4);
+});
+
+test('morale: a unit at half strength or less holds only while its morale beats its losses', () => {
+  const s = openState();
+  const b = unit('b', 'p1', 'infantry', '8,5'); // morale 3, strength 4
+  s.units = [unit('a', 'p0', 'heavy', '2,2'), b];
+  assert.equal(mustCheckMorale(s, { ...b, strength: 3 }), false);
+  assert.equal(mustCheckMorale(s, { ...b, strength: 2 }), true);
+  assert.equal(moraleTally(s, { ...b, strength: 2 }).held, true, '3 morale beats 2 losses');
+  const shaken = moraleTally(s, { ...b, strength: 1 });
+  assert.deepEqual([shaken.morale, shaken.losses, shaken.held], [3, 3, false], '3 morale does not beat 3 losses');
+  // A rallying friend within two hexes adds its rally value; one further away does not.
+  s.units.push(unit('c', 'p1', 'heavy', '10,5'));
+  const rallied = moraleTally(s, { ...b, strength: 1 });
+  assert.deepEqual(rallied.tally.map((t) => t.value), [3, 1]);
+  assert.equal(rallied.held, true);
+  s.units[2].hex = '11,5';
+  assert.equal(moraleTally(s, { ...b, strength: 1 }).held, false);
+});
+
+test('morale: distance from the army\'s main body weakens morale', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'infantry', '0,0'),
+    unit('m1', 'p1', 'infantry', '2,6'), unit('m2', 'p1', 'infantry', '2,7'), unit('m3', 'p1', 'infantry', '3,6'),
+    unit('far', 'p1', 'infantry', '12,6', { strength: 2 })];
+  const centre = mainBody(s, 'p1')!;
+  assert.ok(['m1', 'm2', 'm3'].includes(centre.id));
+  const d = distance('12,6', centre.hex);
+  const t = moraleTally(s, s.units[4]);
+  assert.deepEqual(t.tally[1].value, -Math.ceil((d - 3) / 3));
+  assert.ok(t.tally[1].label.startsWith(`isolated (${d} hexes`));
+  assert.equal(t.held, false, 'isolated: 3 - 3 does not beat 2 losses');
+  // Close to the main body there is no penalty.
+  assert.equal(moraleTally(s, { ...s.units[4], hex: '5,6' }).tally.length, 1);
+});
+
+test('morale: badly damaged units check after the attacks, and disband if they fail', () => {
+  const s = openState();
+  s.map.terrain[5 * 16 + 6] = 'dense_forest'; // the heavy's rear attack: 8 against 5, 3 hits
+  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'infantry', '6,5')];
+  const r = play(s, 0, {});
+  const m = r.events.find((e): e is MoraleEvent => e.type === 'morale')!;
+  assert.deepEqual([m.unit, m.morale, m.losses, m.held], ['b', 3, 3, false]);
+  assert.equal(r.state.units.find((u) => u.id === 'b')!.strength, 0, 'b disbands');
+  // The preview shows the same check before the turn ends.
+  assert.deepEqual(previewTurn(s, {}).events.filter((e) => e.type === 'morale'), [m]);
+  // A rallying heavy next to b keeps it in the fight.
+  s.units.push(unit('d', 'p1', 'heavy', '7,5'));
+  const r2 = play(s, 0, {});
+  const m2 = r2.events.find((e): e is MoraleEvent => e.type === 'morale')!;
+  assert.deepEqual([m2.morale, m2.held], [4, true]);
+  assert.equal(r2.state.units.find((u) => u.id === 'b')!.strength, 1);
+  // A unit still above half strength does not check: an infantry attack does 1 hit (6 against 5).
+  s.units[0].type = 'infantry'; s.units[0].strength = 4;
+  assert.equal(play(s, 0, {}).events.some((e) => e.type === 'morale'), false);
 });
 
 test('combat: an ordered target is attacked; otherwise the weakest adjacent enemy', () => {
