@@ -328,8 +328,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const e = elevationAt(hex);
         const type = view.map.terrain[r * cols + c];
         out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${type === 'water' ? TERRAIN.water.color : elevationColor(e)}"/>`);
-        if (showLabels) out.push(terrainIcon(type, p.x, p.y + SIZE * 0.18, 0.58));
-        if (showLabels) out.push(`<text class="elev" x="${p.x}" y="${p.y - SIZE * 0.6}">${e}</text>`);
+        if (showLabels) out.push(terrainIcon(type, p.x, p.y + SIZE * 0.1, 0.6));
       }
     }
     // Cliffs: edges where the ground drops 2 or more levels (too steep for most units).
@@ -753,7 +752,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     <div class="legend">${(Object.keys(TERRAIN) as (keyof typeof TERRAIN)[]).map((id) => `<span>${legendIcon(id)}${TERRAIN[id].name}</span>`).join('')}
       <span class="elev-scale">elevation ${ELEVATION_COLORS.slice(0, 5).map((col, i) => `<i style="background:${col}" title="elevation ${i}">${i}</i>`).join('')}</span>
       <span><i class="line-key road-key"></i>road</span><span><i class="line-key river-key"></i>river</span><span><i class="line-key bridge-key"></i>bridge</span>
-      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span>number = elevation</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
+      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
   </div>
   <aside class="side" id="side"></aside>
 </div>`;

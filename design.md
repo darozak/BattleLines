@@ -94,8 +94,8 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 - Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.
   Hills sit one level above the ground around them. A hex's colour shows its height on a graded scale, from
   green low ground through yellow and tan to brown high ground (lakes stay blue), and an icon in the hex
-  shows its terrain (#53, `src/client/terrain-art.ts`). The height is also written at the top of the hex,
-  and edges with a drop of 2 or more are drawn as cliffs. Icons and numbers are hidden when zoomed far out.
+  shows its terrain (#53, `src/client/terrain-art.ts`); open ground has no icon. Edges with a drop of 2 or
+  more are drawn as cliffs. Icons are hidden when zoomed far out; a unit's info box gives its exact height.
 - The map scrolls and zooms. Hovering over a unit (a long press, or tapping an enemy, on a touch screen, #43) shows an info box with its
   details and what will happen to it this turn. Orders are given on the map alone (#39): click your unit,
   then a highlighted hex to move it (planned from where it started the turn, so clicking again re-plans

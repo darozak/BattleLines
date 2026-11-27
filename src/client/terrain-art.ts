@@ -18,7 +18,7 @@ const house = (x: number, y: number, w: number) =>
   + `<rect x="${x - 1}" y="${y - 3}" width="2" height="3" fill="#5b4126"/>`;
 
 const ART: Record<TerrainType, string> = {
-  open: '<path d="M-9,6 l1.5,-4 l1.5,4 M7,-4 l1.2,-3.5 l1.2,3.5 M-2,-9 l1,-3 l1,3" stroke="#7c8c4c" stroke-width="1" fill="none" stroke-linecap="round"/>',
+  open: '', // open ground is left empty
   light_forest: tree(-7, 2, 5, '#7fae55') + tree(6, -3, 5.5, '#88b75d') + tree(3, 9, 4, '#76a64e'),
   dense_forest: pine(-8, 4, 8, '#2f6b2f') + pine(0, -2, 9, '#2a6229') + pine(8, 5, 8, '#336f30') + pine(-1, 12, 7, '#2d6a2c'),
   hills: '<path d="M-15,8 Q-8,-8 0,6 Q6,-12 15,8" fill="#b08e5a" stroke="#6e5530" stroke-width="1.3" stroke-linejoin="round"/><path d="M-11,6 q2,-3 4,-1 M3,4 q2,-4 5,-2" stroke="#6e5530" stroke-width=".8" fill="none"/>',
@@ -31,9 +31,9 @@ const ART: Record<TerrainType, string> = {
 };
 
 /** A terrain icon centred on (cx, cy), at `scale` times the 24-unit drawing. */
-export const terrainIcon = (type: TerrainType, cx: number, cy: number, scale: number) =>
+export const terrainIcon = (type: TerrainType, cx: number, cy: number, scale: number) => !ART[type] ? '' :
   `<g class="ticon" transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${scale})">${ART[type]}</g>`;
 
 /** A terrain icon as a small stand-alone SVG, for the legend. */
 export const legendIcon = (type: TerrainType, px = 18) =>
-  `<svg class="legend-icon" width="${px}" height="${px}" viewBox="-15 -15 30 30" aria-hidden="true">${type === 'water' ? '<circle r="14" fill="#6fa3cc"/>' : ''}${ART[type]}</svg>`;
+  `<svg class="legend-icon" width="${px}" height="${px}" viewBox="-15 -15 30 30" aria-hidden="true">${type === 'water' ? '<circle r="14" fill="#6fa3cc"/>' : type === 'open' ? '<circle r="13" fill="#cfe1a0" stroke="#0003"/>' : ''}${ART[type]}</svg>`;
