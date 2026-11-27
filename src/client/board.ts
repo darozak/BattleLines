@@ -2,7 +2,7 @@
 // Hovering over a unit (tapping, on a touch screen) shows an info box with its details and what will
 // happen to it this turn (#34). Clicking one of your units selects it: a small orders strip gives its
 // move, facing and attack controls, and the map marks where it can go and whom it can attack.
-import { parse, neighbors, arcOf, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
+import { parse, neighbors, distance, arcOf, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN, stepCost, fordsRiver } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
@@ -79,6 +79,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   let army: Army | null = null;
   let placements: Placement[] = [];
   let placing: string | null = null; // unit type to place with the next click in the zone
+  let autoArmy = false; // the army was picked by "Deploy army for me", so the next press may pick another (#35)
   const zone = new Set(ctx.deploy?.zone ?? []);
   const spent = () => placements.reduce((n, pl) => n + (view.datasheets[pl.type]?.points ?? 0), 0);
   const middle = `${Math.floor(view.map.cols / 2)},${Math.floor(view.map.rows / 2)}`;
@@ -626,6 +627,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const d = ctx.deploy!;
     if (!army) {
       return `<div class="card deploy"><h3>Choose your army</h3>
+        <div class="row"><button class="secondary" data-action="auto-deploy">Deploy army for me</button>
+          <span class="small">The game picks an army and places its units; press again for another.</span></div>
         ${d.armies.map((a) => `<div class="army"><div><b>${esc(a.name)}</b><div class="small">${esc(a.description)}</div>
           <div class="small">${Object.values(a.units).map((u) => `${esc(u.name)} (${u.points})`).join(' · ')}</div></div>
           ${d.taken[a.id] ? `<span class="small">Taken by ${esc(d.taken[a.id])}</span>` : `<button data-action="army" data-army="${esc(a.id)}">Choose</button>`}</div>`).join('')}</div>`;
@@ -645,7 +648,38 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th title="Fire / range in hexes (– close combat only)">Fire</th><th title="Morale (★ rallies nearby friends)">Mor</th><th>Pts</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <p class="small">${placing ? `Click a highlighted hex in your starting zone to place a ${esc(view.datasheets[placing].name)}. Click a placed unit to remove it.` : 'Press Place, then click hexes in your starting zone (highlighted on the map).'}</p>
-      <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button></div></div>`;
+      <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button>
+        <button class="secondary" data-action="auto-deploy" title="${autoArmy ? 'Pick an army and its units again' : `Pick a new set of ${esc(army.name)} units and places`}">${placements.length ? 'Deploy again for me' : 'Deploy army for me'}</button></div></div>`;
+  }
+
+  /**
+   * "Deploy army for me" (#35): pick an army no one else has (or keep the one the player chose), a
+   * random mix of its units up to the point limit, and place them in the starting zone, front hexes
+   * (nearest the centre) first. Only a suggestion: the player can change it, or press again for another.
+   */
+  function autoDeploy(): void {
+    const d = ctx.deploy!;
+    const free = d.armies.filter((a) => !d.taken[a.id]);
+    if (!free.length) return;
+    if (!army || autoArmy) { army = free[Math.floor(Math.random() * free.length)]; autoArmy = true; }
+    const types = Object.keys(army.units);
+    const hexes = [...zone].filter((h) => !terrainAt(h).impassable && !view.units.some((u) => u.hex === h))
+      .map((h) => ({ h, k: distance(h, middle) + Math.random() * 2.5 })).sort((a, b) => a.k - b.k).map((x) => x.h);
+    const picks: string[] = [];
+    let cost = 0;
+    while (picks.length < hexes.length) {
+      const ok = types.filter((t) => cost + army!.units[t].points <= d.pointLimit);
+      if (!ok.length) break;
+      const t = ok[Math.floor(Math.random() * ok.length)];
+      picks.push(t);
+      cost += army.units[t].points;
+    }
+    placements = picks.map((type, i) => ({ type, hex: hexes[i] }));
+    placing = null;
+    selected = pinned = hovered = null;
+    dirty = true;
+    render();
+    if (placements.length) centerOn(placements[Math.floor(placements.length / 2)].hex, true);
   }
 
   /** Everything ending the turn now would do, worked out by the rules engine. */
@@ -786,13 +820,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const target = ev.target as Element;
     const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
     if (action === 'end-turn') return void endTurn();
+    if (action === 'auto-deploy' && !busy) return autoDeploy();
     if (action === 'army') {
       army = ctx.deploy!.armies.find((a) => a.id === target.closest<HTMLElement>('[data-army]')!.dataset.army) ?? null;
+      autoArmy = false;
       placements = [];
       placing = null;
       return render();
     }
-    if (action === 'army-change') { army = null; placements = []; placing = null; selected = null; return render(); }
+    if (action === 'army-change') { army = null; autoArmy = false; placements = []; placing = null; selected = null; return render(); }
     if (action === 'place') {
       const type = target.closest<HTMLElement>('[data-type]')!.dataset.type!;
       placing = placing === type ? null : type;

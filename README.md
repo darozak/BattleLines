@@ -14,8 +14,10 @@ turn at a time.
    players, and name every player. The game puts the players in a random order.
 2. **Deploy (turn 0).** Each player in turn picks one of the era's armies (no two players can pick the
    same one), then chooses units from it and places them in their starting zone, up to the point limit,
-   and passes the link on. Units can be turned to face a new direction once the battle begins. Later
-   players can see where earlier players deployed. The battle begins once everyone has deployed.
+   and passes the link on. Or press **Deploy army for me**: the game picks an army and places its units,
+   and each press draws a new deployment to choose from or adjust. Units can be turned to face a new
+   direction once the battle begins. Later players can see where earlier players deployed. The battle
+   begins once everyone has deployed.
 3. **Give orders.** Hover over any unit (tap it, on a phone) to see its details and what will happen to
    it this turn. Click one of your units on the map, or step through them with ◀ ▶, to give it orders:
    click highlighted hexes to plot its move, choose which way it should face when it stops, and, if

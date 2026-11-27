@@ -38,7 +38,11 @@ Point limits: 100, 150, 200, 300.
 3. The army may cost up to the point limit, and no more. Any mix of the army's units is allowed, and a
    unit type may be taken more than once. At least one unit must be placed.
 4. Placed units face the centre of the map. They can be turned once the battle begins.
-5. The player passes the link to the next player, who sees where earlier players deployed. The battle
+5. Instead of choosing, a player may press **Deploy army for me**: the game picks a free army (or keeps
+   the one the player chose) and a mix of its units within the point limit, and places them in the
+   starting zone, front hexes first. Each press draws a new deployment, which the player can still
+   change before finishing.
+6. The player passes the link to the next player, who sees where earlier players deployed. The battle
    begins once every player has deployed.
 
 ## 3. The turn
