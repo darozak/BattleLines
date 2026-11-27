@@ -2,7 +2,7 @@
 // Hovering over a unit (tapping, on a touch screen) shows an info box with its details and what will
 // happen to it this turn (#34). Clicking one of your units selects it: a small orders strip gives its
 // move, facing and attack controls, and the map marks where it can go and whom it can attack.
-import { parse, neighbors, distance, arcOf, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
+import { parse, neighbors, distance, arcOf, inBounds, toPixel, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN, stepCost, fordsRiver } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
@@ -62,6 +62,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   let selected: UnitId | null = null;
   /** The unit whose info box stays open after a click or tap (#34). */
   let pinned: UnitId | null = null;
+  /** The hex of a unit just selected by clicking it: no info box there until the mouse leaves it (#41). */
+  let hoverBlock: HexKey | null = null;
   let showReplay = true;
   let dirty = false;
   let busy = false;
@@ -225,14 +227,18 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       return render();
     }
     selected = here && here.own && here.id !== selected ? here.id : null;
-    pinned = here && here.id === selected ? here.id : null;
+    // Selecting a unit doesn't open its info box (#41): it shows only once the mouse leaves the unit's
+    // starting hex and comes back over it.
+    pinned = null;
+    hovered = null;
+    hoverBlock = selected ? hex : null;
     render();
   }
 
-  /** Select a unit: zoom the map to it, open its orders and show its info box. */
+  /** Select a unit and zoom the map to it (its info box shows on hover, #41). */
   function focusUnit(id: UnitId): void {
     selected = id;
-    pinned = id;
+    pinned = null;
     const hex = units().find((u) => u.id === id)?.hex;
     if (hex && zoom < FOCUS_ZOOM) setZoom(FOCUS_ZOOM);
     render();
@@ -315,7 +321,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const hex = `${c},${r}`;
         const p = px(hex);
         out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${terrainAt(hex).color}"/>`);
-        if (showLabels) out.push(`<text class="label" x="${p.x}" y="${p.y + SIZE * 0.62}">${label(hex)}</text>`);
         // Lower ground is shaded darker; the height is written at the top of the hex.
         const e = elevationAt(hex);
         if (e < maxElevation) out.push(`<polygon class="shade" points="${hexPoints(p.x, p.y)}" fill-opacity="${((maxElevation - e) * 0.06).toFixed(2)}"/>`);
@@ -444,31 +449,32 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (e.reason === 'kill') return `for ${unitDesc(e.unit ?? null, e.unitOwner ?? '', e.unitType)}`;
     const i = e.hex ? view.objectives.indexOf(e.hex) : -1;
     const owner = i >= 0 ? view.objectiveOwners[i] : null;
-    const where = e.hex ? label(e.hex) : '';
-    if (e.reason === 'flag') return `for holding ${player(owner ?? '')?.name ?? 'an enemy'}'s flag at ${where}`;
-    if (e.reason === 'final') return `for holding ${where} when the battle ended`;
-    return `for holding ${where}`;
+    // No hex coordinates in the text (#42): name the objective instead.
+    const what = view.scenario === 'hill' ? 'the hill' : 'an objective';
+    if (e.reason === 'flag') return `for holding ${player(owner ?? '')?.name ?? 'an enemy'}'s flag`;
+    if (e.reason === 'final') return `for holding ${what} when the battle ended`;
+    return `for holding ${what}`;
   }
 
   function describe(e: GameEvent): string {
     switch (e.type) {
       case 'deploy': return `${player(e.player)?.name ?? 'Someone'} deployed the ${player(e.player)?.army ?? e.army}: ${plural(e.units, 'unit')}, ${e.points} points.`;
       case 'move': {
-        return `${unitDesc(e.unit, e.owner, e.unitType)} moved ${label(e.path[0])} → ${label(e.path[e.path.length - 1])}.`;
+        return `${unitDesc(e.unit, e.owner, e.unitType)} moved ${plural(e.path.length - 1, 'hex', 'hexes')}.`;
       }
-      case 'halt': return `${unitDesc(e.unit, e.owner)} halted at ${label(e.hex)}: ${e.reason}.`;
-      case 'turn': return `${unitDesc(e.unit, e.owner, e.unitType)} at ${label(e.hex)} turned to face ${FACING_NAMES[e.facing]}.`;
-      case 'clash': return `Opposing units collided at ${label(e.hex)}.`;
+      case 'halt': return `${unitDesc(e.unit, e.owner)} halted: ${e.reason}.`;
+      case 'turn': return `${unitDesc(e.unit, e.owner, e.unitType)} turned to face ${FACING_NAMES[e.facing]}.`;
+      case 'clash': return 'Opposing units collided.';
       case 'attack': {
         const target = unitDesc(e.target, e.targetOwner, e.targetType);
         const arc = e.arc === 'front' ? '' : ` in the ${e.arc}`;
         if (e.free) return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} made a free attack on ${target}${arc} as it disengaged: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
         return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} ${e.ranged ? 'fired at' : 'attacked'} ${target}${arc}: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
       }
-      case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
+      case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed.`;
       case 'morale': return e.held
-        ? `${unitDesc(e.unit, e.owner, e.unitType)} held at ${label(e.hex)}: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`
-        : `${unitDesc(e.unit, e.owner, e.unitType)} broke at ${label(e.hex)} and disbanded: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`;
+        ? `${unitDesc(e.unit, e.owner, e.unitType)} held: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`
+        : `${unitDesc(e.unit, e.owner, e.unitType)} broke and disbanded: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`;
       case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} ${scoreWhy(e)}.`;
       case 'gameover': return `Game over. ${e.reason}`;
       default: return (e as { type: string }).type;
@@ -479,7 +485,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const path = pathOf(u.id);
     const end = plannedEnd(u);
     const turn = end.facing !== u.facing || !end.auto ? ` ${FACING_ARROWS[end.facing]}` : '';
-    if (path.length) return `to ${label(end.hex)}${turn}`;
+    if (path.length) return `move ${plural(path.length, 'hex', 'hexes')}${turn}`;
     return orders[u.id]?.facing !== undefined && end.facing !== u.facing ? `turn ${FACING_ARROWS[end.facing]}` : 'hold';
   }
   const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
@@ -559,7 +565,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <div class="info-str">Strength <b>${unit.strength}/${ds.strength}</b> ${strengthBar(unit.strength, ds.strength, color)}</div>
       <table class="info-stats"><tr><th>Move</th><th>Climb</th><th>Fire</th><th>Morale</th><th>Sight</th></tr>
         <tr><td>${ds.move}</td><td>${ds.climb}</td><td>${ds.range ? `${ds.fire} <span class="small">r${ds.range}</span>` : '–'}</td><td>${ds.morale}${ds.rally ? ` <span class="small">rally +${ds.rally}</span>` : ''}</td><td>${ds.sight}</td></tr></table>
-      <div class="small">${label(unit.hex)} · ${t.name}${t.defense ? ` (cover ${t.defense})` : ''} · elevation ${elevationAt(unit.hex)} · facing ${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</div>
+      <div class="small">${t.name}${t.defense ? ` (cover ${t.defense})` : ''} · elevation ${elevationAt(unit.hex)} · facing ${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</div>
       ${turn.length ? `<div class="info-turn">${turn.map((x) => `<div>${x}</div>`).join('')}</div>` : ''}`;
   }
 
@@ -574,10 +580,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const pinners = ds.range ? others().filter((e) => neighbors(endHex).includes(e.hex) && arcOf(e.hex, e.facing, endHex) === 'front') : [];
     const freeOn = pvAttacks().filter((e) => e.free && e.target === own.id);
     const notes: string[] = [];
-    if (freeOn.length) notes.push(`<span class="warn">Leaving ${label(own.hex)} draws a free attack from ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}.</span>`);
-    if (lost) notes.push(`<span class="warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from ${label(endHex)}: no attack.</span>`);
+    if (freeOn.length) notes.push(`<span class="warn">Leaving its position draws a free attack from ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}.</span>`);
+    if (lost) notes.push(`<span class="warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from there: no attack.</span>`);
     if (pinners.length) notes.push(`Can't fire: ${pinners.map((e) => `${esc(sideOf(e.owner))} ${esc(e.name)}`).join(' and ')} ${pinners.length > 1 ? 'face' : 'faces'} it.`);
-    notes.push(`<span class="how">Click a highlighted hex to move${pathOf(own.id).length ? ` (or ${label(own.hex)} to stay)` : ''} · drag sideways on it to turn${opts.length ? ' · click a red-marked enemy to attack (again to cancel)' : ''}</span>`);
+    notes.push(`<span class="how">Click a highlighted hex to move${pathOf(own.id).length ? ' (or its own hex to stay)' : ''} · drag sideways on it to turn${opts.length ? ' · click a red-marked enemy to attack (again to cancel)' : ''}</span>`);
     return notes;
   }
 
@@ -681,7 +687,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const arc = e.arc === 'front' ? '' : ` (${e.arc})`;
         return `<li><details><summary>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))} ${e.free ? 'free attack on' : e.ranged ? 'fires at' : '→'} ${esc(unitDesc(e.target, e.targetOwner, e.targetType))}${arc}${e.free ? ' as it disengages' : ''}: ${e.attack} vs ${e.defence}, <b>${plural(e.hits, 'hit')}</b></summary>${tallyHtml(e)}</details></li>`;
       }
-      if (e.type === 'halt') return `<li class="warn">${esc(unitDesc(e.unit, e.owner))} will stop at ${label(e.hex)} (${esc(e.reason)}).</li>`;
+      if (e.type === 'halt') return `<li class="warn">${esc(unitDesc(e.unit, e.owner))} will stop early (${esc(e.reason)}).</li>`;
       if (e.type === 'destroyed') return `<li><b>${esc(unitDesc(e.unit, e.owner, e.unitType))} will be destroyed.</b></li>`;
       if (e.type === 'morale') {
         return `<li><details><summary>${esc(unitDesc(e.unit, e.owner, e.unitType))} checks morale: ${e.morale} vs ${plural(e.losses, 'loss', 'losses')}, ${e.held ? 'holds' : '<b>disbands</b>'}</summary>${moraleHtml(e)}</details></li>`;
@@ -760,7 +766,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   }
   wrap.addEventListener('mousemove', (ev) => {
     const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
-    const id = hex ? units().find((u) => u.hex === hex)?.id ?? null : null;
+    if (hoverBlock && hex !== hoverBlock) hoverBlock = null;
+    const id = hex && hex !== hoverBlock ? units().find((u) => u.hex === hex)?.id ?? null : null;
     pointer = { x: ev.clientX, y: ev.clientY };
     if (id !== hovered || id) { hovered = id; showInfo(); }
   });

@@ -67,7 +67,7 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   the turn is ended.
 
 ## The Hex Map
-- Pointy-top hexes in offset rows, shown as labels like `D7`.
+- Pointy-top hexes in offset rows. The page shows no hex coordinates (#42); internally hexes are "col,row" keys.
 - Terrain affects movement, line of sight and cover; the values are in [rules.md](rules.md) (generated from
   `TERRAIN` in `src/shared/terrain.ts`). Where map generation puts each kind of terrain:
 
@@ -94,12 +94,13 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 - Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.
   Hills sit one level above the ground around them. The map shades lower ground darker, writes each hex's
   height at its top, and draws edges with a drop of 2 or more as cliffs.
-- The map scrolls and zooms. Hovering over a unit (tapping, on a touch screen) shows an info box with its
+- The map scrolls and zooms. Hovering over a unit (tapping an enemy, on a touch screen) shows an info box with its
   details and what will happen to it this turn. Orders are given on the map alone (#39): click your unit,
   then a highlighted hex to move it (planned from where it started the turn, so clicking again re-plans
   the move), drag sideways on its new position to turn it, and click a marked enemy to attack (moving or
   turning the unit clears its attack order). There are
-  no unit tables or orders boxes, to keep the screen clear (#34).
+  no unit tables or orders boxes, to keep the screen clear (#34). Selecting a unit doesn't open its info
+  box; it shows when the mouse is over the unit's starting hex (#41).
 - The header stays at the top of the screen and carries each screen's main buttons (#40). A screen marks
   its main buttons with `data-major`; `main.ts` shows a copy of each in the header, and pressing a copy
   presses the original, so the screens keep their own logic.

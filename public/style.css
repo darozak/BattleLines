@@ -89,7 +89,6 @@ svg .unit.is-selected .body { stroke: #fff; stroke-width: 3; }
 svg .unit.is-selected .body { filter: drop-shadow(0 0 3px #000a); }
 svg .path { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 svg .path.active { stroke-width: 4; }
-svg .label { font: 8px sans-serif; fill: #00000066; text-anchor: middle; pointer-events: none; }
 svg .pulse { fill: none; stroke: #8a3b12; stroke-width: 3; pointer-events: none; transform-box: fill-box; transform-origin: center;
   animation: pulse 0.8s ease-out 2; }
 @keyframes pulse { from { transform: scale(0.6); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }

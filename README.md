@@ -21,7 +21,7 @@ the header at the top of the page, so you never need to scroll to find it.
    units (mostly cheaper ones) and places them; each press draws a new deployment to keep or adjust. Units can be turned to face a new
    direction once the battle begins. Later players can see where earlier players deployed. The battle
    begins once everyone has deployed.
-3. **Give orders.** Hover over any unit (tap it, on a phone) to see its details and what will happen to
+3. **Give orders.** Hover over any unit (tap an enemy, on a phone) to see its details and what will happen to
    it this turn. Everything else happens on the map. Click one of your units, or step through them with
    ◀ ▶, then:
    - click a highlighted hex to move it there (click another to change your mind, or its own hex to stay);
