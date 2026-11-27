@@ -238,6 +238,9 @@ dialog.bl-dialog::backdrop { background: rgba(30, 28, 20, .45); }
 .gamebar .pl.out { text-decoration: line-through; color: var(--muted); }
 .game.no-side { grid-template-columns: minmax(0, 1fr); }
 .side[hidden] { display: none; }
-/* The turn's picture in the end-turn dialog (#46) */
-.bl-dialog .pic-preview { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; margin: 6px 0 8px; }
-.bl-dialog .pic-preview[hidden] { display: none; }
+/* Email cards (#50): a hosted graphic with a call to action, and the sender's message */
+.email-card { margin: 8px 0 10px; }
+.email-card .card-img { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--line); }
+.email-card .card-next { margin: 4px 0 0; font-size: 14px; }
+.email-card .card-msg { display: block; margin-top: 8px; font-weight: normal; }
+.email-card textarea.message { width: 100%; margin-top: 4px; font: 15px/1.4 Georgia, serif; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; resize: vertical; }

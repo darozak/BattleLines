@@ -36,7 +36,7 @@ export interface BoardContext {
   /** 'orders': giving orders. 'deploy': turn 0, picking an army and placing units. 'review': read-only. */
   mode: 'orders' | 'review' | 'deploy';
   /** Turn 0 (deploy mode): the era's armies, the player's starting zone and the point limit. */
-  deploy?: { armies: Army[]; taken: Record<string, string>; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment, summaryHtml: string, picture: () => Promise<Blob>) => Promise<void> };
+  deploy?: { armies: Army[]; taken: Record<string, string>; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment, summaryHtml: string) => Promise<void> };
   /** Report sections, shown in the reports dialog and drawn on the map. */
   reports: { title: string; events: GameEvent[] }[];
   /** A notice above the board (HTML). */
@@ -46,7 +46,7 @@ export interface BoardContext {
   /** Main buttons the page adds to the header (#40), each pressed through `afterRender` wiring by id. */
   actions?: { id: string; label: string }[];
   /** End turn (#44): the page shows the link and sharing options, with this summary of what the turn does. */
-  onEndTurn?: (orders: PlayerOrders, summaryHtml: string, picture: () => Promise<Blob>) => Promise<void>;
+  onEndTurn?: (orders: PlayerOrders, summaryHtml: string) => Promise<void>;
   /** Exactly what ending the turn with these orders would do (orders mode). */
   preview?: (orders: PlayerOrders) => TurnPreview;
   /** The enemies a unit could attack from a hex, each with its tally sheet. */
@@ -60,16 +60,7 @@ const MARGIN = 14;
 const ZOOMS = [0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2];
 const FOCUS_ZOOM = 1.25;         // minimum zoom when jumping to a unit
 
-/** What the page can ask of a mounted board. */
-export interface Board {
-  /** A picture of the busy part of the board, with a caption band (#46). */
-  picture: () => Promise<Blob>;
-}
-
-/** The picture's size: the map part, and the caption band under it (#46). */
-export const PICTURE = { w: 1200, h: 630, band: 96 };
-
-export function mountBoard(app: HTMLElement, ctx: BoardContext): Board {
+export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   document.querySelectorAll('dialog.bl-dialog').forEach((d) => d.remove()); // a new screen closes any dialog (#44)
   let orders: Record<UnitId, Plan> = {};
   let selected: UnitId | null = null;
@@ -306,7 +297,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): Board {
   async function endTurn(): Promise<void> {
     if (!ctx.onEndTurn || busy) return;
     // The page opens a dialog with the link (#44); cancelling it comes straight back here.
-    await ctx.onEndTurn(toOrders(), previewHtml(), picture);
+    await ctx.onEndTurn(toOrders(), previewHtml());
   }
 
   // ---------------------------------------------------------------- map
@@ -927,7 +918,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): Board {
       const pts = spent();
       const counts = Object.entries(army.units).map(([type, u]) => [u.name, placements.filter((pl) => pl.type === type).length] as const).filter(([, n]) => n);
       return void ctx.deploy!.onFinish({ army: army.id, units: placements },
-        `<p>You deploy the <b>${esc(army.name)}</b>: ${plural(placements.length, 'unit')}, ${pts} of ${ctx.deploy!.pointLimit} points (${counts.map(([n, k]) => `${esc(n)} ×${k}`).join(', ')}).</p>`, picture);
+        `<p>You deploy the <b>${esc(army.name)}</b>: ${plural(placements.length, 'unit')}, ${pts} of ${ctx.deploy!.pointLimit} points (${counts.map(([n, k]) => `${esc(n)} ×${k}`).join(', ')}).</p>`);
     }
   };
   side.addEventListener('click', onPanelClick);
@@ -960,106 +951,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): Board {
     ctx.afterRender?.(app);
   }
 
-  // ---------------------------------------------------------------- picture (#46)
-
-  /** The hexes worth showing: this turn's moves and attacks, else the latest report's, else the player's units. */
-  function focusHexes(): HexKey[] {
-    const hexes = new Set<HexKey>();
-    for (const u of myUnits()) {
-      const o = orders[u.id];
-      if (o?.path.length || o?.target) { hexes.add(u.hex); for (const h of o?.path ?? []) hexes.add(h); }
-    }
-    for (const e of pvAttacks()) { hexes.add(e.attackerHex); hexes.add(e.targetHex); }
-    if (!hexes.size) {
-      for (const e of reportEvents()) {
-        if (e.type === 'move') e.path.forEach((h) => hexes.add(h));
-        if (e.type === 'attack') { hexes.add(e.attackerHex); hexes.add(e.targetHex); }
-      }
-    }
-    if (!hexes.size) myUnits().forEach((u) => hexes.add(u.hex));
-    if (!hexes.size) units().forEach((u) => hexes.add(u.hex));
-    return [...hexes];
-  }
-
-  /**
-   * A picture of the busy part of the board (#46): a copy of the map's SVG, cropped to the action (with a
-   * margin, at the picture's shape, inside the map), with the page's map styles inlined, drawn onto a
-   * canvas with a caption band: the game, the round, the players and their scores.
-   */
-  async function picture(): Promise<Blob> {
-    const { w: W, h: H, band: BAND } = PICTURE;
-    const src = wrap.querySelector('svg')!;
-    const svg = src.cloneNode(true) as SVGSVGElement;
-    svg.querySelectorAll('.reach, .turn-handle, .turn-hint, .pulse, .target-mark').forEach((e) => e.remove());
-    svg.querySelectorAll('.is-selected').forEach((e) => e.classList.remove('is-selected'));
-    // Arrowheads take their colour from the line ("context-stroke"), which images don't support: use a fixed one.
-    svg.querySelectorAll('marker path').forEach((m) => m.setAttribute('fill', '#b3261e'));
-    // Crop to the action.
-    const { w: mapW, h: mapH } = baseSize();
-    const pts = focusHexes().map(px);
-    let x0 = Math.min(...pts.map((p) => p.x)) - SIZE * 3, x1 = Math.max(...pts.map((p) => p.x)) + SIZE * 3;
-    let y0 = Math.min(...pts.map((p) => p.y)) - SIZE * 3, y1 = Math.max(...pts.map((p) => p.y)) + SIZE * 3;
-    let bw = Math.max(x1 - x0, SIZE * 16), bh = Math.max(y1 - y0, SIZE * 8);
-    if (bw / bh > W / H) bh = bw * H / W; else bw = bh * W / H; // the picture's shape
-    if (bw > mapW) { bw = mapW; bh = bw * H / W; }
-    if (bh > mapH) { bh = mapH; bw = bh * W / H; }
-    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-    x0 = Math.min(Math.max(0, cx - bw / 2), Math.max(0, mapW - bw));
-    y0 = Math.min(Math.max(0, cy - bh / 2), Math.max(0, mapH - bh));
-    svg.setAttribute('viewBox', `${x0} ${y0} ${bw} ${bh}`);
-    svg.setAttribute('width', String(W));
-    svg.setAttribute('height', String(H));
-    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    // Inline the map styles (an SVG drawn as an image can't see the page's stylesheet).
-    const css = [...document.styleSheets].flatMap((sh) => { try { return [...sh.cssRules]; } catch { return []; } })
-      .map((r) => r.cssText).filter((t) => t.startsWith('svg ')).join('\n');
-    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-    style.textContent = css;
-    svg.insertBefore(style, svg.firstChild);
-    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
-    try {
-      const img = new Image();
-      await new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(new Error('The picture could not be drawn.')); img.src = url; });
-      const canvas = document.createElement('canvas');
-      canvas.width = W;
-      canvas.height = H + BAND;
-      const g = canvas.getContext('2d')!;
-      g.fillStyle = '#fffdf8';
-      g.fillRect(0, 0, W, H);
-      g.drawImage(img, 0, 0, W, H);
-      // Caption band.
-      g.fillStyle = '#3b3a2f';
-      g.fillRect(0, H, W, BAND);
-      g.fillStyle = '#f3efe6';
-      g.font = 'bold 34px Georgia, serif';
-      g.textBaseline = 'middle';
-      g.fillText(ctx.gameName, 28, H + 32, W * 0.62);
-      g.font = '22px Georgia, serif';
-      g.fillStyle = '#e0d6c2';
-      const round = view.finished ? 'Final position' : ctx.round === 0 ? 'Deployment' : `Round ${ctx.round} of ${ctx.turnLimit}`;
-      g.fillText(`${round} · ${SCENARIOS[view.scenario]?.name ?? ''} · Battle Lines`, 28, H + 70, W * 0.62);
-      let x = W - 28;
-      g.textAlign = 'right';
-      for (const p of [...ctx.players].reverse()) {
-        const text = `${p.name} ${view.scores[p.id] ?? 0}`;
-        g.font = 'bold 24px Georgia, serif';
-        g.fillStyle = '#f3efe6';
-        g.fillText(text, x, H + BAND / 2);
-        x -= g.measureText(text).width + 10;
-        g.fillStyle = SIDE_COLORS[p.side];
-        g.beginPath(); g.arc(x - 8, H + BAND / 2, 9, 0, Math.PI * 2); g.fill();
-        x -= 36;
-      }
-      return await new Promise<Blob>((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('The picture could not be made.'))), 'image/png'));
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
   render();
   if (ctx.intro) openReports(ctx.intro); // opening a link: what has happened, and whose turn it is (#44)
   // Start centred on the player's own forces (or the middle of the map).
   const mine = myUnits();
   centerOn(mine.length ? mine[Math.floor(mine.length / 2)].hex : `${Math.floor(view.map.cols / 2)},${Math.floor(view.map.rows / 2)}`, false);
-  return { picture };
 }

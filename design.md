@@ -116,13 +116,13 @@ rules give: movement, facing, combat (close combat and fire land together), mora
   when a link is opened). **End turn** and **Finish deployment** open a dialog with the turn's preview
   and the link: nothing is saved (replay-check state, address bar, recent games) until a share button is
   used, so **Cancel** simply goes back to giving orders.
-- **Pictures and previews** (#45, #46). The end-turn dialog can make a PNG of the turn in the browser: a copy
-  of the map's SVG, cropped to the turn's moves and attacks, with the map styles inlined, drawn on a canvas
-  with a caption band. It is shown in the link section. Copy picture writes it to the clipboard as a plain
-  PNG (#49): an HTML copy with the image embedded (#47) pasted into Google Docs but not Gmail, which strips
-  embedded images and keeps only hosted ones, and hosting needs a server. Share sends it as a file (Web
-  Share) with the link; Download saves it. Link previews in chat apps use fixed Open Graph tags and `og-image.jpg`:
-  previews can't see the game after the `#`, so a per-game preview would need a server.
+- **Email cards and previews** (#45, #50). Mail programs such as Gmail show only pictures that are on the web,
+  and the site can host fixed pictures but not one per turn (that would need a server). So the end-turn
+  dialog offers a card: one of the generic graphics in `public/cards/` (battle scenes with a call to action;
+  turn, deployment and final ones), picked at random, with the sender's editable message. Copy card writes
+  HTML (the hosted graphic inside the game link, then the message) and plain text (message and link). The
+  game-specific picture of the turn (#46, #47, #49) was removed. Link previews in chat apps use fixed Open
+  Graph tags and `og-image.jpg`: previews can't see the game after the `#`.
 - **Movement** is simulated in impulses: every moving unit takes one step per impulse, so contact and
   crowding are decided by who gets where first, not by the order of the orders. Step costs and the river
   rule come from `stepCost` and `stepProblem` in `src/shared/terrain.ts`, which the page also uses to

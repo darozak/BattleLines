@@ -70,71 +70,100 @@ function page(html: string): void {
   app.innerHTML = `<div class="narrow">${html}</div>`;
 }
 
-function shareCard(hash: string, title: string, text: string, subject: string, withPicture = false): string {
+// ---------------------------------------------------------------- email cards (#50)
+// Generic graphics hosted on the site (public/cards/): a battle scene with a call to action. Mail programs
+// such as Gmail show pictures only when they are on the web, so a card is a hosted graphic, clickable,
+// with the sender's message under it. Each link gets a card to suit it; "Different picture" tries another.
+
+type CardKind = 'turn' | 'deploy' | 'final';
+const CARDS: Record<CardKind, string[]> = {
+  turn: ['turn-1', 'turn-2', 'turn-3', 'turn-4', 'turn-5', 'turn-6'],
+  deploy: ['deploy-1', 'deploy-2'],
+  final: ['final-1'],
+};
+const CARD_ALT: Record<CardKind, string> = {
+  turn: 'Battle Lines: your turn. Click to play.',
+  deploy: 'Battle Lines: deploy your army. Click to play.',
+  final: 'Battle Lines: the battle is over. Click to see how it ended.',
+};
+const cardUrl = (id: string) => new URL(`cards/${id}.jpg`, document.baseURI).href;
+
+/** What to send with a link: who it's for, the card to show and the default message. */
+interface Sending { title: string; text: string; subject: string; kind: CardKind; message: string }
+
+function shareCard(hash: string, s: Sending): string {
   const url = urlFor(hash);
-  const body = `${text}\n\n${url}\n`;
-  return `<div class="card share">
-    <h3>${esc(title)}</h3>
-    <p class="small">${esc(text)}</p>
-    ${withPicture ? '<img class="pic-preview" alt="A picture of the battlefield this turn" hidden>' : ''}
-    <textarea class="linkbox" readonly rows="3">${esc(url)}</textarea>
-    <div class="row">
-      <button data-share="copy" data-major>Copy link</button>
-      ${withPicture && typeof ClipboardItem !== 'undefined' ? '<button class="secondary" data-share="copy-picture">Copy picture</button>' : ''}
-      <a class="button secondary" data-share="email" href="mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Email…</a>
-      ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
-      ${withPicture ? '<button class="secondary" data-share="download">Download picture</button>' : ''}
+  const cards = CARDS[s.kind];
+  const first = cards[Math.floor(Math.random() * cards.length)];
+  return `<div class="card share" data-card="${first}">
+    <h3>${esc(s.title)}</h3>
+    <p class="small">${esc(s.text)}</p>
+    <div class="email-card">
+      <a href="${esc(url)}" target="_blank" rel="noopener"><img class="card-img" src="${esc(cardUrl(first))}" alt="${esc(CARD_ALT[s.kind])}"></a>
+      ${cards.length > 1 ? '<button class="link card-next" type="button" data-card-next>Different picture</button>' : ''}
+      <label class="small card-msg">Your message, shown under the picture
+        <textarea class="message" rows="2" maxlength="280">${esc(s.message)}</textarea></label>
     </div>
-    <p class="small share-note">${withPicture
-      ? 'For an email with the picture: Copy picture and paste it into the message, then Copy link and paste the link under it. To make the picture itself open the game, select it, press Ctrl+K (⌘K on a Mac) and paste the link. Email… opens your mail app with the link only.'
-      : `The link <b>is</b> the game (${url.length} characters). Send all of it.`}</p>
+    <div class="row">
+      <button data-share="copy-card" data-major>Copy card</button>
+      <button class="secondary" data-share="copy">Copy link</button>
+      <a class="button secondary" data-share="email" href="#">Email…</a>
+      ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
+    </div>
+    <p class="small share-note">Copy card, then paste it into an email (Gmail and others) or a document: the picture opens
+      the game when clicked, with your message under it. Share… sends your message and the link to an app;
+      Copy link copies the link alone.</p>
+    <textarea class="linkbox" readonly rows="2" aria-label="The link">${esc(url)}</textarea>
+    <p class="small">The link <b>is</b> the game (${url.length} characters). Send all of it.</p>
   </div>`;
 }
 
-/** The turn's picture (#46), for the share card: made once on demand. */
-interface SharePicture { blob: () => Promise<Blob>; name: string }
-
-function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: () => void, picture?: SharePicture): void {
+function wireShare(root: HTMLElement, hash: string, s: Sending, onShared?: () => void): void {
   const url = urlFor(hash);
-  const note = root.querySelector<HTMLElement>('.share-note');
-  const canShareFiles = (() => { try { return !!navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] }); } catch { return false; } })();
+  const card = root.querySelector<HTMLElement>('.share')!;
+  const msgBox = root.querySelector<HTMLTextAreaElement>('textarea.message')!;
+  const message = () => msgBox.value.trim();
+  const email = root.querySelector<HTMLAnchorElement>('[data-share="email"]')!;
+  const setMail = () => { email.href = `mailto:?subject=${encodeURIComponent(s.subject)}&body=${encodeURIComponent(`${message()}\n\n${url}\n`)}`; };
+  setMail();
+  msgBox.addEventListener('input', setMail);
+  root.querySelector('[data-card-next]')?.addEventListener('click', () => {
+    const cards = CARDS[s.kind];
+    const next = cards[(cards.indexOf(card.dataset.card!) + 1) % cards.length];
+    card.dataset.card = next;
+    root.querySelector<HTMLImageElement>('.card-img')!.src = cardUrl(next);
+  });
   root.querySelectorAll<HTMLElement>('[data-share]').forEach((btn) => {
     btn.onclick = async () => {
       onShared?.();
       const kind = btn.dataset.share;
       if (kind === 'email') return; // the mailto: link opens the mail app itself
-      if (kind === 'copy') {
+      if (kind === 'copy-card') {
+        // The card as HTML (the hosted graphic, clickable, then the message and the link) for mail and
+        // documents, and as plain text (the message and the link) for anywhere else.
+        const msg = message();
+        const html = `<div><a href="${esc(url)}"><img src="${esc(cardUrl(card.dataset.card!))}" alt="${esc(CARD_ALT[s.kind])}" width="600" style="max-width:100%;height:auto;border:0;border-radius:8px"></a>`
+          + (msg ? `<p style="font-size:16px;margin:12px 0 6px">${esc(msg).replace(/\n/g, '<br>')}</p>` : '')
+          + `<p style="margin:6px 0"><a href="${esc(url)}">Open the game</a></p></div>`;
+        try {
+          await navigator.clipboard.write([new ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([`${msg ? `${msg}\n` : ''}${url}`], { type: 'text/plain' }),
+          })]);
+          btn.textContent = 'Card copied ✓';
+        } catch {
+          btn.textContent = "This browser won't copy the card: use Copy link";
+        }
+      } else if (kind === 'copy') {
         try {
           await navigator.clipboard.writeText(url);
           btn.textContent = 'Link copied ✓';
         } catch {
           root.querySelector<HTMLTextAreaElement>('.linkbox')?.select();
-          btn.textContent = 'Select and copy the link above';
+          btn.textContent = 'Select and copy the link below';
         }
-      } else if (kind === 'copy-picture' && picture) {
-        // #49: the picture alone, as an image. Gmail strips images embedded in pasted HTML (#47), but takes
-        // a pasted image, as do other mail programs, chat apps and documents. The clipboard is written at
-        // once with the picture to follow, so browsers that need the click to be "fresh" (Safari) accept it.
-        try {
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': picture.blob() })]);
-          btn.textContent = 'Picture copied ✓';
-          if (note) note.textContent = 'Paste the picture into your email or post, then Copy link and paste the link under it. In an email, select the picture, press Ctrl+K (⌘K on a Mac) and paste the link to make the picture open the game.';
-        } catch {
-          btn.textContent = "This browser won't copy pictures: use Download picture";
-        }
-      } else if (kind === 'download' && picture) {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(await picture.blob());
-        a.download = picture.name;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-        if (note) note.textContent = `Saved as ${picture.name}: attach it to your post or email, with the link.`;
       } else {
-        // Share…: the picture and the link together where the device can share files; the link alone otherwise.
-        try {
-          if (picture && canShareFiles) await navigator.share({ files: [new File([await picture.blob()], picture.name, { type: 'image/png' })], title: subject, text: `${subject}\n${url}` });
-          else await navigator.share({ title: subject, text: subject, url });
-        } catch { /* cancelled */ }
+        try { await navigator.share({ title: s.subject, text: message() || s.subject, url }); } catch { /* cancelled */ }
       }
     };
   });
@@ -142,43 +171,32 @@ function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: 
 }
 
 /**
- * The end-turn dialog (#44): what the turn does, then the link for the next player, with the picture of
- * the turn (#46, #47), Copy, Email, Share and Download. Nothing is saved or sent until one of them is used
- * (onShared, once); then Done shows the result. Cancel or × goes back to giving orders.
+ * The end-turn dialog (#44): what the turn does, then the card and link for the next player (#50). Nothing
+ * is saved or sent until a share button is used (onShared, once); then Done shows the result. Cancel or ×
+ * goes back to giving orders.
  */
-function sendDialog(title: string, summaryHtml: string, hash: string, cardTitle: string, cardText: string, subject: string,
-  onShared: () => void, onDone: () => void, picture?: { make: () => Promise<Blob>; name: string }): void {
+function sendDialog(title: string, summaryHtml: string, hash: string, sending: Sending, onShared: () => void, onDone: () => void): void {
   let shared = false;
   const dlg = openDialog(title, `${summaryHtml ? `<div class="dlg-summary">${summaryHtml}</div>` : ''}
-    ${shareCard(hash, cardTitle, cardText, subject, !!picture)}
+    ${shareCard(hash, sending)}
     <div class="row dlg-buttons"><button data-done hidden>Done</button><button class="secondary" data-dialog-close>Cancel</button></div>`);
-  const markShared = () => {
+  wireShare(dlg, hash, sending, () => {
     if (!shared) { shared = true; onShared(); }
     dlg.querySelector<HTMLButtonElement>('[data-done]')!.hidden = false;
-  };
-  let made: Promise<Blob> | null = null;
-  const pic = picture ? { blob: () => (made ??= picture.make()), name: picture.name } : undefined;
-  wireShare(dlg, hash, subject, markShared, pic);
-  dlg.querySelector('[data-done]')!.addEventListener('click', () => { dlg.close(); onDone(); });
-  if (!pic) return;
-  void pic.blob().then((b) => {
-    const img = dlg.querySelector<HTMLImageElement>('.pic-preview')!;
-    img.src = URL.createObjectURL(b);
-    img.hidden = false;
-  }).catch(() => {
-    dlg.querySelector<HTMLElement>('.share-note')!.textContent = 'The picture could not be made on this device: Copy link copies the link alone.';
   });
+  dlg.querySelector('[data-done]')!.addEventListener('click', () => { dlg.close(); onDone(); });
 }
 
 /** Who gets the link next, and what to tell them. */
-function sendText(state: GameState, link: GameLink, events: GameEvent[]): { title: string; text: string; subject: string } {
+function sendText(state: GameState, link: GameLink, events: GameEvent[]): Sending {
   const finished = state.finished;
   const next = link.players[state.current];
   const deploying = state.phase === 'deploy';
   const subject = finished ? `Battle Lines: ${link.name} — the battle is over`
     : `Battle Lines: ${link.name} — ${deploying ? 'your turn to deploy' : 'your move'}, ${next}`;
-  if (finished) return { title: 'Send the final link to everyone', text: 'The battle is over. This link shows the final position.', subject };
-  return { title: `Send this link to ${next}`, subject,
+  if (finished) return { title: 'Send the final link to everyone', text: 'The battle is over. This link shows the final position.', subject, kind: 'final', message: 'The battle is over. See how it ended!' };
+  return { title: `Send this link to ${next}`, subject, kind: deploying ? 'deploy' : 'turn',
+    message: deploying ? `${next}, it's your turn to deploy.` : `${next}, it's your turn.`,
     text: deploying ? `Your army is in place. ${next} deploys next.`
       : state.turn === 1 && events.some((e) => e.type === 'deploy') ? `Everyone has deployed: the battle begins! ${next} moves first.`
         : `Your turn is done. ${next} moves next.` };
@@ -314,6 +332,7 @@ function createdScreen(game: Game, hash: string): void {
   const first = link.players[0];
   const era = ERAS[state.era];
   const subject = `Battle Lines: ${link.name} — you deploy first, ${first}`;
+  const firstSending: Sending = { title: `Or send this link to ${first}`, text: `${first} picks an army and places units first.`, subject, kind: 'deploy', message: `${first}, it's your turn to deploy.` };
   page(`<section class="card"><h2>${esc(link.name)}</h2>
       <p>${esc(era.name)} · ${esc(MAP_SIZES[state.size].name)} map · ${state.pointLimit} points per player · ${state.turnLimit} rounds.</p>
       <p><b>${esc(SCENARIOS[state.scenario].name)}</b>: ${esc(SCENARIOS[state.scenario].description)}</p>
@@ -321,8 +340,8 @@ function createdScreen(game: Game, hash: string): void {
       <ol class="order">${link.players.map((n, i) => `<li><span class="swatch" style="background:${SIDE_COLORS[i]}"></span> ${esc(n)} <span class="small">(${SIDE_NAMES[i]})</span></li>`).join('')}</ol>
       <p class="hint">The order was drawn at random. Each player deploys in this order, then takes their turns in it.</p>
       <div class="row"><button id="deploy-now" data-major>I'm ${esc(first)}: deploy now</button></div></section>
-    ${shareCard(hash, `Or send this link to ${first}`, `${first} picks an army and places units first.`, subject)}`);
-  wireShare(app, hash, subject);
+    ${shareCard(hash, firstSending)}`);
+  wireShare(app, hash, firstSending);
   document.getElementById('deploy-now')!.onclick = () => deployScreen(game);
 }
 
@@ -383,12 +402,11 @@ function deployScreen(game: Game): void {
       taken: Object.fromEntries(state.players.filter((p) => state.armies[p.id]).map((p) => [state.armies[p.id]!, link.players[playerIndex(p.id)]])),
       zone: zoneOf(state, playerId(me)),
       pointLimit: state.pointLimit,
-      onFinish: async (d, summaryHtml, picture) => {
+      onFinish: async (d, summaryHtml) => {
         const ended = deploy(game, d);
         const hash = await encodeGame(ended.link);
         const t = sendText(ended.state, ended.link, ended.events);
-        sendDialog('Finish deployment', summaryHtml, hash, t.title, t.text, t.subject,
-          () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events), { make: picture, name: pictureName(ended) });
+        sendDialog('Finish deployment', summaryHtml, hash, t, () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events));
       },
     },
   });
@@ -411,18 +429,14 @@ function playScreen(game: Game): void {
     notice,
     preview: (orders) => previewTurn(state, orders),
     attackOptions: (unitId, hex, facing) => attackOptions(state, unitId, hex, facing),
-    onEndTurn: async (orders, summaryHtml, picture) => {
+    onEndTurn: async (orders, summaryHtml) => {
       const ended = endTurn(game, orders);
       const hash = await encodeGame(ended.link);
       const t = sendText(ended.state, ended.link, ended.events);
-      sendDialog('End turn', summaryHtml, hash, t.title, t.text, t.subject,
-        () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events), { make: picture, name: pictureName(ended) });
+      sendDialog('End turn', summaryHtml, hash, t, () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events));
     },
   });
 }
-
-/** A file name for the turn's picture (#46), e.g. "battle-lines-round-3.png". */
-const pictureName = (g: Game) => `battle-lines-${g.state.phase === 'deploy' ? 'deployment' : `round-${g.state.turn}`}.png`;
 
 /** The turn is sent (a share button was used): remember it, for the replay check and the recent-games list. */
 function commitTurn(ended: Game, hash: string, me: number): void {
@@ -436,7 +450,7 @@ function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): 
   const { link, state } = game;
   const finished = state.finished;
   const t = sendText(state, link, events);
-  const board = mountBoard(app, {
+  mountBoard(app, {
     gameName: link.name,
     round: state.turn,
     turnLimit: state.turnLimit,
@@ -450,7 +464,7 @@ function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): 
     actions: [{ id: 'send-again', label: 'Send the link again' }],
     afterRender: (root) => {
       const btn = root.querySelector<HTMLButtonElement>('[data-action-id="send-again"]');
-      if (btn) btn.onclick = () => sendDialog('Send the link', '', hash, t.title, t.text, t.subject, () => {}, () => {}, { make: board.picture, name: pictureName(game) });
+      if (btn) btn.onclick = () => sendDialog('Send the link', '', hash, t, () => {}, () => {});
     },
   });
 }
