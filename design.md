@@ -100,6 +100,9 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   the move), drag sideways on its new position to turn it, and click a marked enemy to attack (moving or
   turning the unit clears its attack order). There are
   no unit tables or orders boxes, to keep the screen clear (#34).
+- The header stays at the top of the screen and carries each screen's main buttons (#40). A screen marks
+  its main buttons with `data-major`; `main.ts` shows a copy of each in the header, and pressing a copy
+  presses the original, so the screens keep their own logic.
 
 ## Turn Resolution
 The rules of play, with every number, are in [rules.md](rules.md), published as the

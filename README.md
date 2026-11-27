@@ -10,6 +10,9 @@ turn at a time.
 
 ## How a game works
 
+The main button for each step (Create game, Deploy, Finish deployment, End turn, Copy link) is always in
+the header at the top of the page, so you never need to scroll to find it.
+
 1. **Set up.** Open the site and choose the era, the map size, the point limit, the scenario, the
    number of rounds and the number of players, and name every player. The game puts the players in a random order.
 2. **Deploy (turn 0).** Each player in turn picks one of the era's armies (no two players can pick the

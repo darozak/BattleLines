@@ -17,6 +17,27 @@ import type { GameEvent } from '../shared/types.js';
 
 const app = document.getElementById('app')!;
 
+// ---------------------------------------------------------------- header actions (#40)
+// Each screen marks its main buttons with data-major. The header, which stays in view, shows a copy of
+// each one; pressing the copy presses the original, so every screen keeps its own logic. The originals
+// are hidden by the stylesheet.
+const headerActions = document.getElementById('header-actions');
+function syncHeaderActions(): void {
+  if (!headerActions) return;
+  const majors = [...app.querySelectorAll<HTMLButtonElement>('button[data-major]')];
+  headerActions.replaceChildren(...majors.map((orig) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = orig.textContent?.trim() ?? '';
+    b.disabled = orig.disabled;
+    b.className = orig.className;
+    if (orig.title) b.title = orig.title;
+    b.onclick = () => orig.click();
+    return b;
+  }));
+}
+new MutationObserver(syncHeaderActions).observe(app, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'class'] });
+
 // ---------------------------------------------------------------- remembered games (this browser only)
 
 interface SavedGame { id: string; name: string; hash: string; updated: number; status: string }
@@ -56,7 +77,7 @@ function shareCard(hash: string, title: string, text: string, subject: string): 
     <p class="small">${esc(text)}</p>
     <textarea class="linkbox" readonly rows="3">${esc(url)}</textarea>
     <div class="row">
-      <button data-share="copy">Copy link</button>
+      <button data-share="copy" data-major>Copy link</button>
       <a class="button secondary" href="mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Email…</a>
       ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
     </div>
@@ -137,7 +158,7 @@ function homeScreen(): void {
         <p class="hint">The game puts the players in a random order. On turn 0, each player in turn picks a different army
           from the era and places units in their starting zone, up to the point limit. Then the battle begins.</p>
         <p class="error" hidden></p>
-        <button type="submit">Create game</button>
+        <button type="submit" data-major>Create game</button>
       </form></section>
     ${games.length ? `<section class="card"><h2>Your recent games</h2><p class="hint">Remembered by this browser only.</p>
       <table class="roster"><tr><th>Game</th><th>Status</th><th>Last opened</th></tr>
@@ -220,7 +241,7 @@ function createdScreen(game: Game, hash: string): void {
       <h3>Turn order</h3>
       <ol class="order">${link.players.map((n, i) => `<li><span class="swatch" style="background:${SIDE_COLORS[i]}"></span> ${esc(n)} <span class="small">(${SIDE_NAMES[i]})</span></li>`).join('')}</ol>
       <p class="hint">The order was drawn at random. Each player deploys in this order, then takes their turns in it.</p>
-      <div class="row"><button id="deploy-now">I'm ${esc(first)}: deploy now</button></div></section>
+      <div class="row"><button id="deploy-now" data-major>I'm ${esc(first)}: deploy now</button></div></section>
     ${shareCard(hash, `Or send this link to ${first}`, `${first} picks an army and places units first.`, subject)}`);
   wireShare(app, hash, subject);
   document.getElementById('deploy-now')!.onclick = () => deployScreen(game);
@@ -245,10 +266,10 @@ function gameScreen(game: Game, hash: string): void {
     topCard: state.phase === 'deploy'
       ? `<div class="card share"><h3>Turn 0 · ${esc(who)} deploys</h3>
         <p class="small">${esc(who)} picks an army from the ${esc(ERAS[state.era].name)} and places units in their starting zone, up to ${state.pointLimit} points.</p>
-        <div class="row"><button data-play>Deploy ${esc(who)}'s army</button></div></div>`
+        <div class="row"><button data-play data-major>Deploy ${esc(who)}'s army</button></div></div>`
       : `<div class="card share"><h3>Round ${state.turn} · ${esc(who)}'s turn</h3>
         <p class="small">Below is what has happened since ${esc(who)} last moved.</p>
-        <div class="row"><button data-play>Play ${esc(who)}'s turn</button></div></div>`,
+        <div class="row"><button data-play data-major>Play ${esc(who)}'s turn</button></div></div>`,
     afterRender: (root) => {
       const btn = root.querySelector<HTMLButtonElement>('[data-play]');
       if (btn) btn.onclick = () => (state.phase === 'deploy' ? deployScreen(game) : playScreen(game));

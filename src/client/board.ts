@@ -598,7 +598,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <ul class="players">${ctx.players.map((p) => `<li><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>
           ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''}${p.army ? ` <span class="small">(${esc(p.army)})</span>` : ''} — ${view.scores[p.id] ?? 0} pts
           ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : p.id === ctx.current ? '<span class="small">◀ to move</span>' : ''}</li>`).join('')}</ul>
-        ${canOrder() ? `<div class="row submitrow"><button data-action="end-turn" ${busy ? 'disabled' : ''}>${busy ? 'Ending turn…' : 'End turn'}</button>
+        ${canOrder() ? `<div class="row submitrow"><button data-action="end-turn" data-major ${busy ? 'disabled' : ''}>${busy ? 'Ending turn…' : 'End turn'}</button>
           <span class="small">${moving} with orders, ${myUnits().length - moving} holding<br>${summary}</span></div>` : ''}
       </div>
       ${ctx.mode === 'deploy' ? renderDeploy() : ''}
@@ -633,8 +633,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th title="Fire / range in hexes (– close combat only)">Fire</th><th title="Morale (★ rallies nearby friends)">Mor</th><th>Pts</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <p class="small">${placing ? `Click a highlighted hex in your starting zone to place a ${esc(view.datasheets[placing].name)}. Click a placed unit to remove it.` : 'Press Place, then click hexes in your starting zone (highlighted on the map).'}</p>
-      <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button>
-        <button class="secondary" data-action="auto-deploy" title="Draw a random set of ${esc(army.name)} units (mostly cheaper ones) and place them in your zone; press again for another">${placements.length ? 'Deploy again for me' : 'Deploy army for me'}</button></div></div>`;
+      <div class="row"><button data-action="finish-deploy" data-major ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button>
+        <button class="secondary" data-action="auto-deploy" data-major title="Draw a random set of ${esc(army.name)} units (mostly cheaper ones) and place them in your zone; press again for another">${placements.length ? 'Deploy again for me' : 'Deploy army for me'}</button></div></div>`;
   }
 
   /** Weight for drawing a unit type: cheap units far more often than expensive ones (#35). */
