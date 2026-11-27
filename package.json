@@ -11,7 +11,8 @@
     "build": "rm -rf dist && tsc -p . && node scripts/build-site.mjs",
     "typecheck": "tsc -p . --noEmit",
     "dev": "npm run build && node scripts/serve.mjs dist/site 8080",
-    "test": "rm -rf dist && tsc -p . && node --enable-source-maps --test 'dist/test/*.test.js'"
+    "test": "rm -rf dist && tsc -p . && node --enable-source-maps --test 'dist/test/*.test.js'",
+    "rules": "tsc -p . && node scripts/update-rules.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.7",

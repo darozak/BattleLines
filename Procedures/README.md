@@ -17,6 +17,7 @@ To have Claude do a task, name the machine instructions, for example: "Apply AD-
 | [AD-02](SOPs/AD-02%20Working%20with%20branches%20and%20pull%20requests.md) | Working with branches and pull requests | None |
 | [AD-03](SOPs/AD-03%20Publishing%20the%20live%20site.md) | Publishing the live site | M1 following a publish |
 | [DV-01](SOPs/DV-01%20Making%20and%20testing%20game%20changes.md) | Making and testing game changes | A1 docs to keep current, M1 making a game change |
+| [DV-02](SOPs/DV-02%20Maintaining%20the%20rules.md) | Maintaining the rules | M1 updating the rules |
 
 ## Categories
 

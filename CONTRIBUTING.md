@@ -5,7 +5,7 @@ Thank you for helping. Battle Lines is a free, open-source correspondence hex wa
 ## Ways to help
 
 - **Play and report.** Start a game at https://darozak.github.io/BattleLines/, play a few turns with a friend, and [open an issue](../../issues/new/choose) when something is wrong or confusing. Confusion is a bug too.
-- **Write.** The design (`design.md`) and the rules (`rules.md`) are Markdown files in this repository.
+- **Write.** The design (`design.md`) and the rules (`rules.md`, published as the [Rules page](https://darozak.github.io/BattleLines/rules.html)) are Markdown files in this repository.
 - **Code.** The game is TypeScript with no framework. The [README](README.md) explains how to run it locally.
 
 ## How changes are made

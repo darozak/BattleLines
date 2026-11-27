@@ -1,6 +1,6 @@
 # Battle Lines
 
-**Play now: [darozak.github.io/BattleLines](https://darozak.github.io/BattleLines/)**
+**Play now: [darozak.github.io/BattleLines](https://darozak.github.io/BattleLines/)** · **[Read the rules](https://darozak.github.io/BattleLines/rules.html)**
 
 Battle Lines is a free correspondence wargame for two to four players, played on a hex map in your
 web browser. There is nothing to install, no account to create and no server: the whole game travels
@@ -59,9 +59,9 @@ turn at a time.
 - **No sign-up, no tracking**: the game lives in the link, after the `#`, which browsers never send to
   the web server. Your browser remembers your recent games so you can reopen them.
 
-The movement, combat and scoring rules are **placeholders** while the real rules are written
-([rules.md](rules.md), [#4](https://github.com/darozak/BattleLines/issues/4)), and so are the eras' armies and
-unit values. Hand-made maps and more are planned: see the [open issues](https://github.com/darozak/BattleLines/issues).
+The full rules are in [rules.md](rules.md), also published as the
+[Rules page](https://darozak.github.io/BattleLines/rules.html) of the live site. Their numbers, and the eras' armies
+and unit values, are **placeholders** while the game is playtested. Hand-made maps and more are planned: see the [open issues](https://github.com/darozak/BattleLines/issues).
 
 ## Design goals
 
@@ -88,6 +88,7 @@ Requires Node.js 22 or newer. The code is TypeScript, compiled to a static site 
 npm install
 npm run dev     # build and serve at http://localhost:8080
 npm test        # build and run all tests
+npm run rules   # regenerate the tables in rules.md from the game data
 ```
 
 You can play every side from one browser: open each new link and play the next turn.
@@ -106,8 +107,9 @@ pull requests are tested by `.github/workflows/tests.yml`. See [AD-03](Procedure
   - `types.ts`: data shapes.
 - `src/client/`: the web page. `main.ts`: screens (set up, deploy, play a turn, send the link). `board.ts`: the map, unit tables, datasheets and deployment.
 - `public/`: `index.html` and `style.css`.
-- `scripts/`: site assembly and a small local web server.
-- `test/`: engine tests, and link/game tests (round trips, damaged links, replay checks, link sizes).
+- `src/rules/`: the tables in `rules.md` that are generated from the game data.
+- `scripts/`: site assembly (including the Rules page, built from `rules.md`), a small local web server, and `update-rules.mjs`.
+- `test/`: engine tests, link/game tests (round trips, damaged links, replay checks, link sizes), and a check that `rules.md` is up to date.
 - `Procedures/`: the project's standard operating procedures.
 
 ## Licence

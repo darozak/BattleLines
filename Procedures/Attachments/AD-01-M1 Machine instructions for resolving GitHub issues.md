@@ -16,7 +16,9 @@
 
       1. <a id="3.3.1"></a>the rules engine, eras and armies, link format, web page, tests and game docs: [DV-01](../SOPs/DV-01%20Making%20and%20testing%20game%20changes.md);
 
-      2. <a id="3.3.2"></a>an SOP or attachment: [QA-01](../SOPs/QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md).
+      2. <a id="3.3.2"></a>the rules of play (`rules.md`), with or without a change to the game: [DV-02](../SOPs/DV-02%20Maintaining%20the%20rules.md);
+
+      3. <a id="3.3.3"></a>an SOP or attachment: [QA-01](../SOPs/QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md).
 
    4. <a id="3.4"></a>Make the change, run the checks the governing SOP requires, and commit with a message that names the issue number.
 

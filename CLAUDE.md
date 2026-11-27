@@ -23,7 +23,7 @@ When a change affects players or how the project works, update in the same chang
 
 - `README.md` (what the game is, how a game works, setup, code layout)
 - `design.md` (how the game is built, the link format, turn resolution, versioning)
-- `rules.md` (the rules of play, once written)
+- `rules.md` (the rules of play, published as the live site's Rules page; see below)
 - `CLAUDE.md` and `CONTRIBUTING.md` (how the project is run)
 - the SOPs in `Procedures/` (QA-01)
 
@@ -37,4 +37,4 @@ When a change affects players or how the project works, update in the same chang
 - Battle Lines is a static site. The whole game travels in the link; every player sees the whole battlefield. No server, no accounts, no hidden information.
 - The rules engine (`src/shared/engine.ts`) is pure and deterministic. There are no dice: combat is a tally of modifiers, so the same orders always give the same result, and the page shows players exactly what their orders will do before they end the turn.
 - A change that alters how a turn plays out, or how a link is written, changes games in progress: say so, increase `LINK_VERSION` and ask the project lead about keeping the old version available (DV-01 §4.4).
-- The movement, combat and scoring rules are placeholders until `rules.md` is written.
+- `rules.md` is the rulebook, published at https://darozak.github.io/BattleLines/rules.html, and must describe the game the code plays. Update it in the same change as any mechanic it describes and run `npm run rules` to regenerate its tables and version; `npm test` fails while they are out of date (DV-02). The numbers are placeholders until the project lead settles them.

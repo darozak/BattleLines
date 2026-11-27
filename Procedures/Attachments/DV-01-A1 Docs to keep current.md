@@ -6,7 +6,7 @@
 
    2. <a id="1.2"></a>`design.md`: how the game is built and why, the link format, turn resolution and versioning.
 
-   3. <a id="1.3"></a>`rules.md`: the rules of play, once written.
+   3. <a id="1.3"></a>`rules.md`: the rules of play, published as the Rules page of the live site, per [DV-02](../SOPs/DV-02%20Maintaining%20the%20rules.md).
 
    4. <a id="1.4"></a>`CLAUDE.md` and `CONTRIBUTING.md`: when the change alters how the project is run.
 

@@ -179,3 +179,20 @@ svg .bridge { fill: none; stroke: #4a3a28; stroke-width: 10; stroke-linecap: but
 .legend i.road-key { border-top: 3px solid #9b7b47; }
 .legend i.river-key { border-top: 4px solid #3f86c4; }
 .legend i.bridge-key { border-top: 6px solid #4a3a28; }
+
+/* Site navigation and the rules page (rules.html, built from rules.md) */
+.topnav a { color: var(--bg); text-decoration: none; margin-left: 18px; font-size: 15px; }
+.topnav a:hover { text-decoration: underline; }
+main.rules { max-width: 820px; background: var(--paper); margin: 16px auto; padding: 8px 28px 28px; border: 1px solid var(--line); border-radius: 6px; }
+main.rules h2 { margin-top: 32px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+main.rules h3 { margin-top: 24px; }
+main.rules li { margin: 4px 0; }
+main.rules .tablewrap { max-height: none; margin: 12px 0; }
+main.rules table { border-collapse: collapse; width: 100%; font-size: 15px; }
+main.rules th, main.rules td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+main.rules th { background: var(--bg); }
+main.rules a { color: var(--accent); }
+main.rules nav.contents { background: var(--bg); border-radius: 6px; padding: 4px 16px 12px; margin: 16px 0; }
+main.rules nav.contents h2 { margin: 8px 0; border: none; font-size: 18px; }
+main.rules nav.contents ul { margin: 0; padding-left: 18px; columns: 2; }
+@media (max-width: 600px) { main.rules { margin: 0; padding: 4px 16px 20px; border: none; border-radius: 0; } main.rules nav.contents ul { columns: 1; } }

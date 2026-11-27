@@ -38,7 +38,7 @@
 
    5. <a id="4.5"></a>Keep links short. When a change adds to what a link carries, check the sizes the link tests print and say how they changed.
 
-   6. <a id="4.6"></a>The movement, combat and scoring rules in the code are placeholders until `rules.md` is written. A rule change follows `rules.md`; if the two disagree, ask the project lead.
+   6. <a id="4.6"></a>`rules.md` is the rulebook players read on the live site, and it must describe the game the code plays. Update it in the same change as any mechanic it describes, per [DV-02](DV-02%20Maintaining%20the%20rules.md). The numbers in the rules are placeholders until the project lead settles them.
 
 5. # <a id="5"></a>Procedures
 
@@ -48,13 +48,13 @@
 
    3. <a id="5.3"></a>Run the checks:
 
-      1. <a id="5.3.1"></a>`npm test`: compiles the TypeScript and runs every test.
+      1. <a id="5.3.1"></a>`npm test`: compiles the TypeScript and runs every test, including the checks that `rules.md` is up to date ([DV-02](DV-02%20Maintaining%20the%20rules.md) §4.4).
 
       2. <a id="5.3.2"></a>`npm run build`: builds the site in `dist/site`.
 
       3. <a id="5.3.3"></a>For a change to the web page or to how the game plays: `npm run dev`, then create a game, play at least one turn for each player by opening each new link, and check the page at phone width as well as desktop width.
 
-   4. <a id="5.4"></a>Update every doc the change affects, using [DV-01-A1](../Attachments/DV-01-A1%20Docs%20to%20keep%20current.md), in the same change.
+   4. <a id="5.4"></a>Update every doc the change affects, using [DV-01-A1](../Attachments/DV-01-A1%20Docs%20to%20keep%20current.md), in the same change. Update `rules.md` per [DV-02](DV-02%20Maintaining%20the%20rules.md).
 
    5. <a id="5.5"></a>Report the change and see it through to merge, per [AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md).
 
@@ -64,7 +64,9 @@
 
    2. <a id="6.2"></a>[AD-02](AD-02%20Working%20with%20branches%20and%20pull%20requests.md): Working with branches and pull requests
 
-   3. <a id="6.3"></a>[QA-01](QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md): Writing and maintaining Battle Lines standard operating procedures
+   3. <a id="6.3"></a>[DV-02](DV-02%20Maintaining%20the%20rules.md): Maintaining the rules
+
+   4. <a id="6.4"></a>[QA-01](QA-01%20Writing%20and%20maintaining%20Battle%20Lines%20standard%20operating%20procedures.md): Writing and maintaining Battle Lines standard operating procedures
 
 7. # <a id="7"></a>Attachments
 

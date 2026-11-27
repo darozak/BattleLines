@@ -66,26 +66,26 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 
 ## The Hex Map
 - Pointy-top hexes in offset rows, shown as labels like `D7`.
-- Terrain affects movement cost, line of sight and cover (placeholder values):
+- Terrain affects movement, line of sight and cover; the values are in [rules.md](rules.md) (generated from
+  `TERRAIN` in `src/shared/terrain.ts`). Where map generation puts each kind of terrain:
 
-  | Terrain | Move cost | Cover | Blocks sight | Where it appears |
-  |---|---|---|---|---|
-  | Open | 1 | 0 | no | everywhere else |
-  | Light forest | 2 | +1 | no | forest clusters |
-  | Dense forest | 3 | +2 | yes | the heart of a forest (a forest hex surrounded by forest) |
-  | Hills | 2 | +1 | yes | clusters, one level above their surroundings; +2 sight |
-  | Ruins | 2 | +2 | yes | both eras |
-  | Village | 1 | +2 | yes | Napoleonic era |
-  | Marsh | 3 | 0 | no | grows beside rivers |
-  | Lake | impassable | – | no | small clusters |
+  | Terrain | Where it appears |
+  |---|---|
+  | Open | everywhere else |
+  | Light forest | forest clusters |
+  | Dense forest | the heart of a forest (a forest hex surrounded by forest) |
+  | Hills | clusters, one level above their surroundings |
+  | Ruins | both eras |
+  | Village | Napoleonic era |
+  | Marsh | grows beside rivers |
+  | Lake | small clusters |
 
-- **Roads, rivers and bridges are lines** (placeholder values):
+- **Roads, rivers and bridges are lines**, not terrain (their effects on movement and combat are in rules.md):
   - **Roads** join hex centres: a meandering west–east and north–south road, with branches to villages, ruins
-    and other points. A step **along** a road costs ½, whatever the terrain, so a unit on a road goes twice as far.
+    and other points.
   - **Rivers** run along hex edges: a meandering river from the north edge to the south edge, with branching
-    tributaries. A unit must **stop at a river** before crossing: it can only cross as the first step of a
-    move, and crossing costs +2 movement. Attacking across a river is −2 attack.
-  - **Bridges** are where a road crosses a river: a road step (½), no need to stop first, and −1 to attack across.
+    tributaries.
+  - **Bridges** are where a road crosses a river.
   - The map stores both as pairs of adjacent hexes (`roads`, `rivers`); a pair in both lists is a bridge.
 
 - Every unit faces one of the six hexsides.
@@ -94,40 +94,20 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   height at its top, and draws edges with a drop of 2 or more as cliffs.
 - The map scrolls and zooms. A unit table sits beside it, and clicking a unit opens its datasheet and orders.
 
-## Turn Resolution (placeholder rules)
-1. **Movement:** units move one hex at a time along their paths. A unit stops when it becomes adjacent to a
-   new enemy, and can't enter an enemy's hex. Moving units face their last step unless ordered otherwise.
-   Each step may rise or fall by at most the unit's **climb** (1 for most units, 2 for light troops).
-   A step costs the terrain's move cost (½ along a road), +1 for each level climbed (descending is free),
-   +2 to ford a river, which can only be the first step of a move. The first step of a move is always
-   allowed, whatever it costs, so slow ground never traps a unit.
-   Friendly units may pass through each other, but no two may end a move in the same hex: a unit that
-   stayed put keeps its hex, otherwise the one that got there first does, and the other stops on the last
-   free hex of its route. The map only offers hexes where a unit can actually stop.
-2. **Facing:** units turn to their ordered facing.
-3. **Combat:** each of the active player's units next to an enemy attacks it in close combat: the target
-   in its orders if that enemy is in reach, otherwise the weakest. Units with no enemy next to them may
-   fire (below). All attacks land together.
-   - **Attack** = the attacker's strength, +1 from the target's flank, +2 from its rear, + the attacker's
-     height above the target (or − its height below it, when attacking uphill).
-     Attacking across a river is −2, across a bridge −1.
-   - **Defence** = 3 (base), + the cover of the target's hex (light forest and hills 1; dense forest, ruins
-     and villages 2).
-   - **Hits** = attack − defence, never below 0. Each hit removes one strength point; a unit at 0 is destroyed.
-   - **Ranged attacks:** a unit with no enemy next to it fires instead, if its datasheet gives it a range:
-     at the ordered target, or else the nearest enemy (then the weakest) within range, in its front arc
-     (the three hexsides it faces) and in line of sight (no hex between blocks sight). Attack = its
-     **fire**, − 1 for each hex beyond 2, + flank/rear and height as above (rivers don't matter); defence
-     = 2 + cover. Cavalry can't fire; muskets reach 2 hexes, rifles 3–4, tanks 4–5.
-4. **Morale:** each unit that took hits, survived, and is down to half its starting strength or less checks
-   morale, all against the battlefield as it stands after the attacks.
-   - **Morale** = the unit's morale (on its datasheet), + the rally value of each friendly rallying unit
-     (guards and other elites, rally 1) within 2 hexes, − 1 for every 3 hexes (or part of 3) it stands more
-     than 3 hexes from its army's **main body**: the army's centre unit, the one with the smallest total
-     distance to the rest.
-   - **Losses** = strength lost since the battle began.
-   - The unit holds if morale is greater than losses; otherwise it breaks and disbands, leaving the battle.
-5. **Scoring:** the active player scores 1 for each objective they hold with no enemy adjacent.
+## Turn Resolution
+The rules of play, with every number, are in [rules.md](rules.md), published as the
+[Rules page](https://darozak.github.io/BattleLines/rules.html) and kept in step with the code per DV-02. The
+engine (`resolvePlayerTurn` in `src/shared/engine.ts`) resolves the active player's turn in the order the
+rules give: movement, facing, combat (close combat and fire land together), morale, scoring. How it does so:
+
+- **Movement** is simulated in impulses: every moving unit takes one step per impulse, so contact and
+  crowding are decided by who gets where first, not by the order of the orders. Step costs and the river
+  rule come from `stepCost` and `stepProblem` in `src/shared/terrain.ts`, which the page also uses to
+  highlight moves, so the map only offers hexes the engine will accept.
+- **Combat**: every attack is worked out against the board after movement, then all hits are applied.
+- **Morale**: every check is made against the board after the attacks, then units that fail are removed.
+- **Preview**: the page runs `resolvePlayerTurn` on the planned orders, so the preview is exactly what
+  ending the turn will do.
 
 ## Versioning
 The rules, maps and datasheets are built into the code. Every link records its format version
