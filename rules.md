@@ -115,8 +115,8 @@ edges. Every hex also has an **elevation** (the number shown in it).
 ## 6. Close combat
 
 1. **Attacks are optional.** A unit attacks only if you order it to, and only the enemy you pick. To
-   attack, select your unit and click the enemy on the map, or pick it on the unit's datasheet. Click it
-   again, or choose "Don't attack", to cancel.
+   attack, select your unit and click the enemy on the map (enemies it can reach are marked in red).
+   Click it again, or choose "Don't attack", to cancel.
 2. After movement, a unit attacks its target in **close combat** if the target is next to it. If the
    target isn't in reach once the unit has moved, there is no attack.
 3. The attack is a **tally** of modifiers, shown before you end your turn:

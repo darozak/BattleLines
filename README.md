@@ -16,8 +16,9 @@ turn at a time.
    same one), then chooses units from it and places them in their starting zone, up to the point limit,
    and passes the link on. Units can be turned to face a new direction once the battle begins. Later
    players can see where earlier players deployed. The battle begins once everyone has deployed.
-3. **Give orders.** Click one of your units, in the unit table or on the map, to open its datasheet.
-   Click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
+3. **Give orders.** Hover over any unit (tap it, on a phone) to see its details and what will happen to
+   it this turn. Click one of your units on the map, or step through them with ◀ ▶, to give it orders:
+   click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
    you want it to attack, click an enemy it can reach (marked in red) to attack or fire at it. Attacks
    are always optional.
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
@@ -106,7 +107,7 @@ pull requests are tested by `.github/workflows/tests.yml`. See [AD-03](Procedure
   - `link.ts`: the link encoding (compression, base64url).
   - `game.ts`: set up a game, deploy, end a turn, read a link, check the other players' turns by replay.
   - `types.ts`: data shapes.
-- `src/client/`: the web page. `main.ts`: screens (set up, deploy, play a turn, send the link). `board.ts`: the map, unit tables, datasheets and deployment.
+- `src/client/`: the web page. `main.ts`: screens (set up, deploy, play a turn, send the link). `board.ts`: the map, unit info boxes, the orders strip and deployment.
 - `public/`: `index.html` and `style.css`.
 - `src/rules/`: the tables in `rules.md` that are generated from the game data.
 - `scripts/`: site assembly (including the Rules page, built from `rules.md`), a small local web server, and `update-rules.mjs`.

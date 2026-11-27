@@ -92,7 +92,9 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 - Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.
   Hills sit one level above the ground around them. The map shades lower ground darker, writes each hex's
   height at its top, and draws edges with a drop of 2 or more as cliffs.
-- The map scrolls and zooms. A unit table sits beside it, and clicking a unit opens its datasheet and orders.
+- The map scrolls and zooms. Hovering over a unit (tapping, on a touch screen) shows an info box with its
+  details and what will happen to it this turn; clicking one of your units opens a small orders strip for
+  its facing and attack. There are no unit tables, to keep the screen clear (#34).
 
 ## Turn Resolution
 The rules of play, with every number, are in [rules.md](rules.md), published as the

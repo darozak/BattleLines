@@ -63,19 +63,11 @@ button.link { background: none; color: var(--accent); padding: 0; font-weight: n
 
 /* Unit tables */
 .tablewrap { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
-table.unittable { border-collapse: collapse; width: 100%; font-size: 13px; }
-table.unittable th { position: sticky; top: 0; background: #f1ebde; text-align: left; padding: 4px 6px; font-weight: bold; z-index: 1; }
-table.unittable td { padding: 4px 6px; border-top: 1px solid #eee6d6; white-space: nowrap; }
-table.unittable tbody tr { cursor: pointer; }
-table.unittable tbody tr:hover { background: #f7f1e4; }
-table.unittable tbody tr.sel { background: #f3dfc7; }
-table.unittable td.moving { color: var(--accent); font-weight: bold; }
-table.unittable td.muted { color: var(--muted); }
 
 /* Datasheet */
 .datasheet .ds-head { display: flex; align-items: center; gap: 10px; }
 .datasheet .ds-head h3 { margin: 0; }
-.datasheet .close { margin-left: auto; background: none; color: var(--muted); font-size: 22px; padding: 0 4px; line-height: 1; }
+.datasheet .close, .orders .close { margin-left: auto; background: none; color: var(--muted); font-size: 22px; padding: 0 4px; line-height: 1; }
 .counter { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
   font: bold 15px sans-serif; border: 2px solid; flex: none; }
 table.stats { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0 4px; }
@@ -125,7 +117,7 @@ a.button.secondary { background: #e7e0d0; color: var(--ink); }
 
 /* Datasheet panel: floats over the map, so opening it never moves anything else (#20) */
 .mapframe { position: relative; }
-.datasheet-dock { position: absolute; top: 10px; right: 10px; width: 340px; max-height: calc(100% - 20px); overflow: auto;
+.datasheet-dock { position: absolute; top: 10px; right: 10px; width: 300px; max-height: calc(100% - 20px); overflow: auto;
   z-index: 5; border-radius: 6px; box-shadow: 0 4px 18px #0003; overscroll-behavior: contain; }
 .datasheet-dock .card { margin: 0; }
 @media (max-width: 960px) {
@@ -200,3 +192,26 @@ main.rules nav.contents ul { margin: 0; padding-left: 18px; columns: 2; }
 svg .target-mark { fill: none; stroke: #b3261e; stroke-width: 2.5; stroke-dasharray: 5 4; pointer-events: none; }
 svg .target-mark.on { stroke-width: 4; stroke-dasharray: none; }
 .small.warn { color: var(--err); }
+
+/* Info box over the map (#34): a unit's details and what happens to it this turn */
+.infobox { position: absolute; z-index: 15; width: 270px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: 8px 10px; font-size: 13px; line-height: 1.35; pointer-events: none; }
+.infobox .info-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.infobox .info-str { display: flex; gap: 6px; align-items: center; margin: 2px 0; }
+.infobox .info-str .bar { flex: 1; }
+table.info-stats { width: 100%; border-collapse: collapse; margin: 4px 0; text-align: center; }
+table.info-stats th { font-weight: normal; color: var(--muted); font-size: 11px; }
+table.info-stats td { font-weight: bold; }
+.infobox .info-turn { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 4px; }
+.infobox .info-turn div { margin: 2px 0; }
+/* Orders strip for the selected unit (#34) */
+.datasheet-dock .orders { padding: 10px 12px; }
+.orders .ds-head { display: flex; align-items: center; gap: 8px; }
+.orders-row { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0 4px; }
+.orders-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.orders-notes div { margin: 3px 0; }
+.orders-notes .warn { color: var(--err); }
+.maptools .cycle { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+@media (max-width: 960px) { .infobox { width: 240px; } }
+.hint-touch { display: none; }
+@media (hover: none) { .hint-hover { display: none; } .hint-touch { display: inline; } }

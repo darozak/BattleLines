@@ -1,13 +1,13 @@
-// The battle board: a scrollable, zoomable hex map with a side panel (unit tables, datasheets,
-// orders, reports). Clicking a unit, in the table or on the map, zooms the map to it and opens
-// its datasheet; for the player's own units the datasheet has their move and facing orders.
-import { parse, neighbors, distance, arcOf, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
+// The battle board: a scrollable, zoomable hex map with a side panel (players, turn preview, reports).
+// Hovering over a unit (tapping, on a touch screen) shows an info box with its details and what will
+// happen to it this turn (#34). Clicking one of your units selects it: a small orders strip gives its
+// move, facing and attack controls, and the map marks where it can go and whom it can attack.
+import { parse, neighbors, arcOf, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN, stepCost, fordsRiver } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
 import type { AttackOption, TurnPreview } from '../shared/engine.js';
-import { RALLY_RANGE, FIRE_FULL_RANGE } from '../shared/engine.js';
 import type { Army, Deployment, Placement } from '../shared/setup.js';
 import { esc } from './util.js';
 
@@ -59,6 +59,8 @@ const FOCUS_ZOOM = 1.25;         // minimum zoom when jumping to a unit
 export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   let orders: Record<UnitId, Plan> = {};
   let selected: UnitId | null = null;
+  /** The unit whose info box stays open after a click or tap (#34). */
+  let pinned: UnitId | null = null;
   let showReplay = true;
   let dirty = false;
   let busy = false;
@@ -210,30 +212,28 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       }
     }
     const here = units().find((u) => u.hex === hex);
+    if (ctx.mode === 'deploy' && here?.id.startsWith('new')) { // a unit placed this turn: take it off the map
+      placements.splice(Number(here.id.slice(3)), 1);
+      selected = pinned = hovered = null;
+      return render();
+    }
     if (unit && canOrder() && here && !here.own && targetOptions(unit).some((o) => o.target.id === here.id)) {
       setTarget(unit.id, orders[unit.id]?.target === here.id ? null : here.id); // click again to cancel
       return render();
     }
-    selected = here && here.id !== selected ? here.id : null;
+    if (here && !here.own && ctx.mode !== 'deploy') { // an enemy: show its info box, keep the selection
+      pinned = pinned === here.id ? null : here.id;
+      return render();
+    }
+    selected = here && here.own && here.id !== selected ? here.id : null;
+    pinned = here && here.id === selected ? here.id : null;
     render();
-    if (selected) revealRow(selected);
   }
 
-  /** Scroll a unit's row into view inside its own table box, without moving the page. */
-  function revealRow(id: UnitId): void {
-    const row = side.querySelector<HTMLElement>(`tr[data-unit="${CSS.escape(id)}"]`);
-    const box = row?.closest<HTMLElement>('.tablewrap');
-    if (!row || !box) return;
-    const header = box.querySelector('thead')?.getBoundingClientRect().height ?? 0;
-    const r = row.getBoundingClientRect();
-    const b = box.getBoundingClientRect();
-    if (r.top < b.top + header) box.scrollTop -= b.top + header - r.top;
-    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom;
-  }
-
-  /** Select a unit: zoom the map to it and open its datasheet. */
+  /** Select a unit: zoom the map to it, open its orders and show its info box. */
   function focusUnit(id: UnitId): void {
     selected = id;
+    pinned = id;
     const hex = units().find((u) => u.id === id)?.hex;
     if (hex && zoom < FOCUS_ZOOM) setZoom(FOCUS_ZOOM);
     render();
@@ -416,7 +416,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     }
     for (const u of units()) {
       const p = px(u.hex);
-      out.push(`<g class="unit${u.id === selected ? ' is-selected' : ''}">${facingWedge(u.hex, u.facing, colorOf(u.owner))}<circle class="body" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" fill="${colorOf(u.owner)}"/>`
+      out.push(`<g class="unit${u.id === selected ? ' is-selected' : ''}" data-unit="${esc(u.id)}" data-hex="${u.hex}">${facingWedge(u.hex, u.facing, colorOf(u.owner))}<circle class="body" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.6}" fill="${colorOf(u.owner)}"/>`
         + `<text x="${p.x}" y="${p.y - 1}">${esc(u.code)}</text>`
         + `<circle cx="${p.x + SIZE * 0.5}" cy="${p.y - SIZE * 0.45}" r="7" fill="#fffdf8" stroke="${colorOf(u.owner)}"/>`
         + `<text class="str" x="${p.x + SIZE * 0.5}" y="${p.y - SIZE * 0.45}">${u.strength}</text></g>`);
@@ -460,15 +460,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       default: return (e as { type: string }).type;
     }
   }
-
-  const involves = (e: GameEvent, id: UnitId): boolean => {
-    switch (e.type) {
-      case 'move': case 'halt': case 'turn': case 'destroyed': case 'morale': return e.unit === id;
-      case 'clash': return e.units.includes(id);
-      case 'attack': return e.attacker === id || e.target === id;
-      default: return false;
-    }
-  };
 
   function orderText(u: OwnUnit): string {
     const path = pathOf(u.id);
@@ -528,124 +519,78 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     return `${plural(on.length, 'attack')} on ${esc(unitDesc(targetId, target?.owner ?? '', target?.type))}: ${plural(total, 'hit')}, strength ${target?.strength} → ${after}${after === 0 ? ' — <b>destroyed</b>' : ''}.${morale}`;
   }
 
-  const arrow = (f: Facing) => `<span class="arrow" title="facing ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</span>`;
 
   function strengthBar(strength: number, max: number, color: string): string {
     const pct = Math.max(0, Math.min(100, (strength / max) * 100));
     return `<span class="bar"><span style="width:${pct}%;background:${color}"></span></span>`;
   }
 
-  function renderUnitTables(): string {
-    const mine = myUnits();
-    const rows = mine.map((u) => `<tr data-unit="${esc(u.id)}" class="${u.id === selected ? 'sel' : ''}">
-        <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
-        <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
-        <td>${u.strength}/${view.datasheets[u.type].strength}</td><td>${u.move}</td><td>${u.sight}</td>
-        <td class="${hasOrders(u.id) ? 'moving' : 'muted'}">${ctx.mode === 'orders' ? orderText(u) : ''}${pvAttacks().some((e) => e.attacker === u.id) ? ' <span title="attacks">⚔</span>' : ''}</td></tr>`).join('');
-    const seen = others().map((u) => `<tr data-unit="${esc(u.id)}" class="${u.id === selected ? 'sel' : ''}">
-        <td><span class="swatch" style="background:${colorOf(u.owner)}"></span></td>
-        <td>${esc(u.name)}</td><td>${label(u.hex)} ${arrow(u.facing)}</td>
-        <td>${u.strength}/${view.datasheets[u.type].strength}</td><td colspan="3">${esc(player(u.owner)?.name)}</td></tr>`);
-    const ownTable = ctx.me ? `<h3>Your units <span class="small">(${mine.length})</span></h3>
-      ${mine.length ? `<div class="tablewrap" data-scroll="own"><table class="unittable">
-        <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th>Mv</th><th>Sight</th><th>${ctx.mode === 'orders' ? 'Orders' : ''}</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>` : `<p class="small">${ctx.round === 0 ? 'No units placed yet.' : 'No units remaining.'}</p>`}` : '';
-    const otherTitle = `${ctx.me ? 'Enemy units' : 'All units'} <span class="small">(${seen.length})</span>`;
-    return `<div class="card units">${ownTable}
-      <h3 ${ctx.me ? 'style="margin-top:12px"' : ''}>${otherTitle}</h3>
-      ${seen.length ? `<div class="tablewrap" data-scroll="others"><table class="unittable">
-        <thead><tr><th></th><th>Unit</th><th>Hex</th><th>Str</th><th colspan="3">Player</th></tr></thead>
-        <tbody>${seen.join('')}</tbody></table></div>` : `<p class="small">${ctx.round === 0 ? 'No enemy units deployed yet.' : 'No enemy units left.'}</p>`}
-    </div>`;
-  }
-
-  function renderDatasheet(): string {
-    if (!selected) return '';
-    const own = ownUnit(selected);
-    const enemy = others().find((u) => u.id === selected);
-    const unit = own ?? enemy;
-    if (!unit) return '';
+  /** The info box for a unit: its datasheet in brief, where it stands, and what happens to it this turn. */
+  function infoHtml(unit: VisibleUnit): string {
     const ds = view.datasheets[unit.type];
     const color = colorOf(unit.owner);
     const t = terrainAt(unit.hex);
-    const title = own ? own.name : `${sideOf(unit.owner)} ${unit.name}`;
-    const history = reportEvents().filter((e) => involves(e, unit.id));
+    const title = unit.own ? unit.name : `${sideOf(unit.owner)} ${unit.name}`;
+    const turn: string[] = [];
+    if (pv) {
+      if (unit.own) {
+        turn.push(`Orders: ${orderText(unit)}`);
+        const made = pvAttacks().find((e) => e.attacker === unit.id && !e.free);
+        if (made) turn.push(`${made.ranged ? 'Fires at' : 'Attacks'} ${esc(unitDesc(made.target, made.targetOwner, made.targetType))}: ${made.attack} vs ${made.defence} → <b>${plural(made.hits, 'hit')}</b>`);
+      }
+      const on = outcomeOn(unit.id);
+      if (on) turn.push(on);
+    } else if (ctx.mode === 'deploy' && unit.own) turn.push(`${ds.points} points${unit.id.startsWith('new') ? ' · click it to take it off the map' : ''}`);
+    return `<div class="info-head"><span class="counter mini" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
+        <div><b>${esc(title)}</b><div class="small">${esc(ds.name)}${unit.own ? '' : ` · ${esc(player(unit.owner)?.name ?? '')}`}</div></div></div>
+      <div class="info-str">Strength <b>${unit.strength}/${ds.strength}</b> ${strengthBar(unit.strength, ds.strength, color)}</div>
+      <table class="info-stats"><tr><th>Move</th><th>Climb</th><th>Fire</th><th>Morale</th><th>Sight</th></tr>
+        <tr><td>${ds.move}</td><td>${ds.climb}</td><td>${ds.range ? `${ds.fire} <span class="small">r${ds.range}</span>` : '–'}</td><td>${ds.morale}${ds.rally ? ` <span class="small">rally +${ds.rally}</span>` : ''}</td><td>${ds.sight}</td></tr></table>
+      <div class="small">${label(unit.hex)} · ${t.name}${t.defense ? ` (cover ${t.defense})` : ''} · elevation ${elevationAt(unit.hex)} · facing ${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</div>
+      ${turn.length ? `<div class="info-turn">${turn.map((x) => `<div>${x}</div>`).join('')}</div>` : ''}`;
+  }
 
-    let options = '';
-    if (own && canOrder()) {
-      const path = pathOf(own.id);
-      const used = pathCost(own.hex, path);
-      const end = plannedEnd(own);
-      // Compass laid out like the hexsides: NW NE / W E / SW SE.
-      const compass = ([2, 1, 3, 0, 4, 5] as Facing[]).map((f) => `<button class="face${end.facing === f ? ' on' : ''}${own.facing === f ? ' current' : ''}"
-          data-action="face" data-facing="${f}" title="Face ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</button>`).join('');
-      options = `<div class="ds-section"><h4>Orders</h4>
-        <p>${path.length ? `Move to <b>${label(path[path.length - 1])}</b> via ${path.map(label).join(', ')}` : '<b>Hold position</b>'}
-        <br><span class="small">Movement used ${mpText(used)} of ${own.move}.${used > own.move ? ' The first step of a move is always allowed, whatever it costs.' : ''}</span></p>
-        <p class="small">Click a highlighted hex on the map to extend the move; click the end of the path to step back.</p>
-        <div class="row">
-          <button class="secondary" data-action="undo" ${path.length ? '' : 'disabled'}>Undo step</button>
-          <button class="secondary" data-action="hold" ${path.length ? '' : 'disabled'}>Hold position</button>
-        </div>
-        <h4>Facing at end of turn</h4>
-        <div class="facing-row"><div class="compass">${compass}</div>
-          <div class="small">Ends facing <b>${FACING_NAMES[end.facing]}</b> ${FACING_ARROWS[end.facing]}
-            ${end.auto ? (path.length ? '(direction of last step)' : '(unchanged)') : '(ordered)'}<br>
-            ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
-      // Combat: who this unit can attack from where it will stop, and exactly what each attack would do.
-      const endHex = pv?.endHex[own.id] ?? own.hex;
-      const freeOn = pvAttacks().filter((e) => e.free && e.target === own.id);
-      if (freeOn.length) {
-        options += `<div class="ds-section"><h4>Disengaging</h4><p class="small warn">Leaving ${label(own.hex)} takes ${esc(own.name)} out of the front of ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}: ${freeOn.length > 1 ? 'each makes' : 'it makes'} a free attack first.</p>`
-          + freeOn.map((e) => tallyHtml(e)).join('') + `<p class="small">${outcomeOn(own.id)}</p></div>`;
-      }
-      const opts = targetOptions(own);
-      const made = pvAttacks().find((e) => e.attacker === own.id);
-      const fires = opts.some((o) => o.ranged);
-      const closes = opts.some((o) => !o.ranged);
-      // An adjacent enemy facing the unit stops it firing (#32).
-      const pinners = ds.range ? others().filter((e) => neighbors(endHex).includes(e.hex) && arcOf(e.hex, e.facing, endHex) === 'front') : [];
-      const ordered = orders[own.id]?.target;
-      const lost = ordered && !opts.some((o) => o.target.id === ordered) ? units().find((u) => u.id === ordered) : undefined;
-      options += `<div class="ds-section"><h4>Combat</h4>${lost ? `<p class="small warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from ${label(endHex)}: no attack.</p>` : ''}${!opts.length
-        ? `<p class="small">No enemy next to ${label(endHex)}${ds.range ? ` and none to fire at (within ${ds.range} hexes, in front and in sight)` : ''}: no attack this turn.</p>`
-        : `<p class="small">Attacking is optional. After moving, ${esc(own.name)} can ${[closes ? 'attack an enemy next to it' : '', fires ? `fire at an enemy within ${ds.range} hexes, in front and in sight` : ''].filter(Boolean).join(' or ')}: pick one here or click it on the map.</p>
-          ${pinners.length ? `<p class="small">It can't fire: ${pinners.map((e) => `${esc(sideOf(e.owner))} ${esc(e.name)}`).join(' and ')} ${pinners.length > 1 ? 'face' : 'faces'} it from next door.</p>` : ''}
-          <div class="targets"><button class="target${ordered ? '' : ' on'}" data-action="target-none"><b>Don't attack</b></button>${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
-            <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.ranged ? ` (fire, ${distance(endHex, o.target.hex)} hexes${o.arc === 'front' ? '' : `, ${o.arc}`})` : o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
-          ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` + (pvMorale(made.target) ? moraleHtml(pvMorale(made.target)!) : '') : ''}
-`}</div>`;
-    }
-    if (enemy && ctx.mode === 'orders') {
-      const on = pvAttacks().filter((e) => e.target === enemy.id);
-      options = `<div class="ds-section"><h4>Attacks on this unit this turn</h4>${on.length
-        ? on.map((e) => `<p class="small"><b>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))}</b>${e.arc === 'front' ? '' : ` (${e.arc})`}</p>${tallyHtml(e)}`).join('') + `<p class="small">${outcomeOn(enemy.id)}</p>` + (pvMorale(enemy.id) ? moraleHtml(pvMorale(enemy.id)!) : '')
-        : '<p class="small">None of your units will attack it.</p>'}</div>`;
-      const able = canOrder() ? myUnits().filter((u) => targetOptions(u).some((o) => o.target.id === enemy.id)) : [];
-      if (able.length) {
-        options += `<div class="ds-section"><h4>Attack it with</h4><p class="small">Your units that can reach it this turn, from where they will stop:</p>
-          <div class="targets">${able.map((u) => { const o = targetOptions(u).find((x) => x.target.id === enemy.id)!; const on = orders[u.id]?.target === enemy.id;
-            return `<button class="target${on ? ' on' : ''}" data-action="attack-with" data-unit-id="${esc(u.id)}"><b>${esc(u.name)}</b>${o.ranged ? ' (fire)' : ''}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}${on ? ' ✓' : ''}</button>`; }).join('')}</div></div>`;
-      }
-    }
-    return `<div class="card datasheet" style="border-top:4px solid ${color}">
-      <div class="ds-head"><span class="counter" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
-        <div><h3>${esc(title)}</h3><div class="small">${esc(ds.name)}${own ? '' : ` · ${esc(player(unit.owner)?.name ?? '')}`}</div></div>
+  /** The orders strip for the selected unit: move, facing and attack controls (#34). */
+  function renderOrders(): string {
+    const own = ownUnit(selected);
+    if (!own || !canOrder()) return '';
+    const ds = view.datasheets[own.type];
+    const color = colorOf(own.owner);
+    const path = pathOf(own.id);
+    const used = pathCost(own.hex, path);
+    const end = plannedEnd(own);
+    const endHex = pv?.endHex[own.id] ?? own.hex;
+    // Compass laid out like the hexsides: NW NE / W E / SW SE.
+    const compass = ([2, 1, 3, 0, 4, 5] as Facing[]).map((f) => `<button class="face${end.facing === f ? ' on' : ''}${own.facing === f ? ' current' : ''}"
+        data-action="face" data-facing="${f}" title="Face ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</button>`).join('');
+    const opts = targetOptions(own);
+    const made = pvAttacks().find((e) => e.attacker === own.id && !e.free);
+    const ordered = orders[own.id]?.target;
+    const lost = ordered && !opts.some((o) => o.target.id === ordered) ? units().find((u) => u.id === ordered) : undefined;
+    // An adjacent enemy facing the unit stops it firing (#32).
+    const pinners = ds.range ? others().filter((e) => neighbors(endHex).includes(e.hex) && arcOf(e.hex, e.facing, endHex) === 'front') : [];
+    const freeOn = pvAttacks().filter((e) => e.free && e.target === own.id);
+    const notes: string[] = [];
+    if (freeOn.length) notes.push(`<span class="warn">Leaving ${label(own.hex)} draws a free attack from ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}: ${plural(freeOn.reduce((n, e) => n + e.hits, 0), 'hit')}.</span>`);
+    if (lost) notes.push(`<span class="warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from ${label(endHex)}: no attack.</span>`);
+    if (made) notes.push(`${made.ranged ? 'Fires at' : 'Attacks'} <b>${esc(unitDesc(made.target, made.targetOwner, made.targetType))}</b>: ${made.attack} vs ${made.defence} → <b>${plural(made.hits, 'hit')}</b>.`);
+    else if (opts.length) notes.push(`Attacking is optional: click an enemy marked in red to ${opts.some((o) => o.ranged) ? 'attack or fire at it' : 'attack it'}.`);
+    else notes.push('No enemy in reach from where it stops.');
+    if (pinners.length) notes.push(`It can't fire: ${pinners.map((e) => `${esc(sideOf(e.owner))} ${esc(e.name)}`).join(' and ')} ${pinners.length > 1 ? 'face' : 'faces'} it.`);
+    return `<div class="card orders" style="border-top:4px solid ${color}">
+      <div class="ds-head"><span class="counter mini" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
+        <div><b>${esc(own.name)}</b><div class="small">${path.length ? `to ${label(path[path.length - 1])} · ` : 'holding · '}movement ${mpText(used)} of ${own.move}</div></div>
         <button class="close" data-action="close" aria-label="Close">×</button></div>
-      <table class="stats">
-        <tr><th>Strength</th><td>${unit.strength} / ${ds.strength} ${strengthBar(unit.strength, ds.strength, color)}</td></tr>
-        <tr><th>Move</th><td>${ds.move}</td></tr>
-        <tr><th>Climb</th><td>${ds.climb} <span class="small">(level${ds.climb === 1 ? '' : 's'} up or down per step)</span></td></tr>
-        <tr><th>Fire</th><td>${ds.range ? `${ds.fire} · range ${ds.range} hexes <span class="small">(in front and in sight; −1 per hex beyond ${FIRE_FULL_RANGE})</span>` : '— <span class="small">(close combat only)</span>'}</td></tr>
-        <tr><th>Morale</th><td>${ds.morale}${ds.rally ? ` · rallies friends within ${RALLY_RANGE} hexes (+${ds.rally})` : ''}</td></tr>
-        <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</td></tr>
-        <tr><th>Sight</th><td>${ds.sight}${t.sightBonus ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
-        <tr><th>Location</th><td>${label(unit.hex)} · ${t.name}${t.defense ? ` <span class="small">(cover ${t.defense})</span>` : ''} · elevation ${elevationAt(unit.hex)}</td></tr>
-      </table>
-      ${options}
-      ${history.length ? `<div class="ds-section"><h4>Recently</h4><ul class="log">${history.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ul></div>` : ''}
-      ${ctx.mode === 'deploy' && own?.id.startsWith('new') ? `<div class="ds-section"><p class="small">${ds.points} points.</p><div class="row"><button class="secondary" data-action="remove-placement">Remove from the battlefield</button></div></div>` : ''}
-      <div class="row"><button class="link" data-action="center">Show on map</button></div>
+      <div class="orders-row">
+        <div class="compass" title="Facing at the end of the turn">${compass}</div>
+        <div class="orders-buttons">
+          <button class="secondary small-btn" data-action="undo" ${path.length ? '' : 'disabled'}>Undo step</button>
+          <button class="secondary small-btn" data-action="hold" ${path.length ? '' : 'disabled'}>Hold</button>
+          ${ordered ? '<button class="secondary small-btn" data-action="target-none">Don\'t attack</button>' : ''}
+          ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing</button>'}
+        </div>
+      </div>
+      <div class="small orders-notes">${notes.map((n) => `<div>${n}</div>`).join('')}</div>
     </div>`;
   }
 
@@ -669,7 +614,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
           <span class="small">${moving} with orders, ${myUnits().length - moving} holding<br>${summary}</span></div>` : ''}
       </div>
       ${ctx.mode === 'deploy' ? renderDeploy() : ''}
-      ${renderUnitTables()}
       ${canOrder() ? renderPreview() : ''}
       <div class="card"><h3>Reports</h3>
         ${reports.length ? `<label class="small"><input type="checkbox" data-action="replay" ${showReplay ? 'checked' : ''}> show on map</label>
@@ -749,11 +693,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <span id="zoomlevel" class="small"></span>
       <button class="secondary small-btn" data-zoom="in" aria-label="Zoom in">+</button>
       <button class="secondary small-btn" data-zoom="fit">Fit map</button>
-      <span class="small hint-inline">Scroll or drag to pan · click a unit for its datasheet</span>
+      <span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>
+      <span class="small hint-inline hint-hover">Hover over a unit for its details · click yours to give orders · drag to pan</span>
+      <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours to give orders</span>
     </div>
     <div class="mapframe">
       <div class="mapwrap" id="mapwrap"></div>
       <div class="datasheet-dock" id="datasheet" hidden></div>
+      <div class="infobox" id="infobox" hidden></div>
     </div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
       <span><i class="line-key road-key"></i>road</span><span><i class="line-key river-key"></i>river</span><span><i class="line-key bridge-key"></i>bridge</span>
@@ -764,6 +711,40 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const wrap = document.getElementById('mapwrap')!;
   const side = document.getElementById('side')!;
   const dock = document.getElementById('datasheet')!;
+  const infobox = document.getElementById('infobox')!;
+  const frame = app.querySelector<HTMLElement>('.mapframe')!;
+
+  // The info box (#34): follows the pointer over a unit; a clicked or tapped unit's box stays put.
+  let hovered: UnitId | null = null;
+  let pointer: { x: number; y: number } | null = null;
+  function showInfo(): void {
+    const id = hovered ?? pinned;
+    const unit = id ? units().find((u) => u.id === id) : undefined;
+    // On a narrow screen the orders strip already covers the selected unit: no second box for it.
+    const narrow = window.matchMedia('(max-width: 960px)').matches;
+    if (!unit || (!hovered && narrow && unit.id === selected && dock.innerHTML)) { infobox.hidden = true; return; }
+    infobox.innerHTML = infoHtml(unit);
+    infobox.hidden = false;
+    const f = frame.getBoundingClientRect();
+    let x: number; let y: number;
+    if (hovered && pointer) { x = pointer.x - f.left + 18; y = pointer.y - f.top + 18; }
+    else {
+      const poly = wrap.querySelector(`polygon.hex[data-hex="${unit.hex}"]`)?.getBoundingClientRect();
+      x = poly ? poly.right - f.left + 6 : 10; y = poly ? poly.top - f.top : 10;
+    }
+    const w = infobox.offsetWidth; const h = infobox.offsetHeight;
+    if (x + w > f.width - 6) x = Math.max(6, (hovered && pointer ? pointer.x - f.left - 18 : x - 60) - w);
+    if (y + h > f.height - 6) y = Math.max(6, f.height - h - 6);
+    infobox.style.left = `${x}px`;
+    infobox.style.top = `${y}px`;
+  }
+  wrap.addEventListener('mousemove', (ev) => {
+    const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
+    const id = hex ? units().find((u) => u.hex === hex)?.id ?? null : null;
+    pointer = { x: ev.clientX, y: ev.clientY };
+    if (id !== hovered || id) { hovered = id; showInfo(); }
+  });
+  wrap.addEventListener('mouseleave', () => { hovered = null; showInfo(); });
 
   // Click on the map (ignoring the end of a mouse drag; touch screens scroll natively).
   let drag: { x: number; y: number; left: number; top: number; moved: boolean } | null = null;
@@ -789,6 +770,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   app.querySelector('.maptools')!.addEventListener('click', (ev) => {
     const z = (ev.target as Element).closest<HTMLElement>('[data-zoom]')?.dataset.zoom;
+    const cycle = (ev.target as Element).closest<HTMLElement>('[data-cycle]')?.dataset.cycle;
+    if (cycle) {
+      const mine = myUnits();
+      if (!mine.length) return;
+      const at = mine.findIndex((u) => u.id === selected);
+      return focusUnit(mine[(at + Number(cycle) + mine.length) % mine.length].id);
+    }
     if (z === 'in') zoomStep(1);
     else if (z === 'out') zoomStep(-1);
     else if (z === 'fit') zoomToFit();
@@ -810,18 +798,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       placing = placing === type ? null : type;
       return render();
     }
-    if (action === 'remove-placement' && selected?.startsWith('new')) {
-      placements.splice(Number(selected.slice(3)), 1);
-      selected = null;
-      return render();
-    }
     if (action === 'finish-deploy' && army && placements.length && !busy) {
       busy = true;
       dirty = false;
       render();
       return void ctx.deploy!.onFinish({ army: army.id, units: placements });
     }
-    if (action === 'close') { selected = null; return render(); }
+    if (action === 'close') { selected = null; pinned = null; return render(); }
     if (action === 'center' && selected) return focusUnit(selected);
     if (action === 'undo' && selected) { setPath(selected, pathOf(selected).slice(0, -1)); return render(); }
     if (action === 'hold' && selected) { setPath(selected, []); return render(); }
@@ -838,13 +821,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       return render();
     }
     if (action === 'target-none' && selected) { setTarget(selected, null); return render(); }
-    if (action === 'attack-with' && selected) {
-      const id = target.closest<HTMLElement>('[data-unit-id]')!.dataset.unitId!;
-      setTarget(id, orders[id]?.target === selected ? null : selected);
-      return render();
-    }
-    const row = target.closest<HTMLElement>('tr[data-unit]');
-    if (row) focusUnit(row.dataset.unit!);
   };
   side.addEventListener('click', onPanelClick);
   dock.addEventListener('click', onPanelClick);
@@ -870,11 +846,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     side.innerHTML = renderSide();
     side.querySelectorAll<HTMLElement>('[data-scroll]').forEach((el) => { el.scrollTop = scrolls.get(el.dataset.scroll!) ?? 0; });
     side.scrollTop = sideTop;
-    const sheet = renderDatasheet();
+    const sheet = renderOrders();
     dock.innerHTML = sheet;
     dock.hidden = !sheet;
     dock.scrollTop = selected === dockUnit ? dockTop : 0;
     dockUnit = selected;
+    if (pinned && !units().some((u) => u.id === pinned)) pinned = null;
+    showInfo();
     if (window.scrollX !== winX || window.scrollY !== winY) window.scrollTo(winX, winY);
     ctx.afterRender?.(app);
   }
