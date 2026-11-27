@@ -33,9 +33,9 @@ round, scenario and scores are in a slim bar above it, and the **Report** button
 4. **End your turn.** Your units move, then attack or fire at the enemies you picked; badly damaged enemies check
    their morale; then you score for the objectives you hold. **End turn** opens a box showing exactly what
    your turn will do and the link for the next player, with buttons to copy, email or share it. It also
-   shows a **picture of the turn**, cropped to where the action is. **Copy link and picture** copies both:
-   paste into an email and you get the picture, which opens the game when clicked; paste into a chat and you
-   get the link. **Share…** sends both on phones, and **Download picture** saves it. **Cancel**
+   shows a **picture of the turn**, cropped to where the action is. **Copy picture** and **Copy link** put
+   each on the clipboard, to paste into an email or post (in an email, select the picture and press Ctrl+K
+   or ⌘K to make it open the game). **Share…** sends both on phones, and **Download picture** saves it. **Cancel**
    takes you back to your orders; once you've sent the link, **Done** shows the result. Shared links show a
    Battle Lines preview card in chat apps and social media.
 5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,

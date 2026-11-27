@@ -79,13 +79,14 @@ function shareCard(hash: string, title: string, text: string, subject: string, w
     ${withPicture ? '<img class="pic-preview" alt="A picture of the battlefield this turn" hidden>' : ''}
     <textarea class="linkbox" readonly rows="3">${esc(url)}</textarea>
     <div class="row">
-      <button data-share="copy" data-major>Copy link${withPicture ? ' and picture' : ''}</button>
+      <button data-share="copy" data-major>Copy link</button>
+      ${withPicture && typeof ClipboardItem !== 'undefined' ? '<button class="secondary" data-share="copy-picture">Copy picture</button>' : ''}
       <a class="button secondary" data-share="email" href="mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Email…</a>
       ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
       ${withPicture ? '<button class="secondary" data-share="download">Download picture</button>' : ''}
     </div>
     <p class="small share-note">${withPicture
-      ? 'Copy link and picture, then paste: into an email you get the picture, and clicking it opens the game; into a chat you get the link. Email… opens your mail app with the link only.'
+      ? 'For an email with the picture: Copy picture and paste it into the message, then Copy link and paste the link under it. To make the picture itself open the game, select it, press Ctrl+K (⌘K on a Mac) and paste the link. Email… opens your mail app with the link only.'
       : `The link <b>is</b> the game (${url.length} characters). Send all of it.`}</p>
   </div>`;
 }
@@ -104,25 +105,22 @@ function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: 
       if (kind === 'email') return; // the mailto: link opens the mail app itself
       if (kind === 'copy') {
         try {
-          if (picture && typeof ClipboardItem !== 'undefined') {
-            // #47: one copy holds the picture wrapped in the link (pasted into an email or a document) and the
-            // plain link (pasted into a chat). The clipboard is written at once, with the picture to follow,
-            // so browsers that need the click to be "fresh" (Safari) accept it.
-            const html = picture.blob().then((b) => new Promise<Blob>((ok) => {
-              const r = new FileReader();
-              r.onload = () => ok(new Blob([`<a href="${esc(url)}"><img src="${r.result}" alt="${esc(subject)}" width="600"></a><br><a href="${esc(url)}">${esc(subject)}</a>`], { type: 'text/html' }));
-              r.readAsDataURL(b);
-            }));
-            await navigator.clipboard.write([new ClipboardItem({ 'text/html': html, 'text/plain': new Blob([url], { type: 'text/plain' }) })]);
-          } else {
-            await navigator.clipboard.writeText(url);
-          }
-          btn.textContent = 'Copied ✓';
+          await navigator.clipboard.writeText(url);
+          btn.textContent = 'Link copied ✓';
         } catch {
-          try { await navigator.clipboard.writeText(url); btn.textContent = 'Link copied ✓ (without the picture)'; } catch {
-            root.querySelector<HTMLTextAreaElement>('.linkbox')?.select();
-            btn.textContent = 'Select and copy the link above';
-          }
+          root.querySelector<HTMLTextAreaElement>('.linkbox')?.select();
+          btn.textContent = 'Select and copy the link above';
+        }
+      } else if (kind === 'copy-picture' && picture) {
+        // #49: the picture alone, as an image. Gmail strips images embedded in pasted HTML (#47), but takes
+        // a pasted image, as do other mail programs, chat apps and documents. The clipboard is written at
+        // once with the picture to follow, so browsers that need the click to be "fresh" (Safari) accept it.
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': picture.blob() })]);
+          btn.textContent = 'Picture copied ✓';
+          if (note) note.textContent = 'Paste the picture into your email or post, then Copy link and paste the link under it. In an email, select the picture, press Ctrl+K (⌘K on a Mac) and paste the link to make the picture open the game.';
+        } catch {
+          btn.textContent = "This browser won't copy pictures: use Download picture";
         }
       } else if (kind === 'download' && picture) {
         const a = document.createElement('a');
