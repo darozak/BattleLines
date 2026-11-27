@@ -274,10 +274,7 @@ function homeScreen(): void {
       <table class="roster"><tr><th>Game</th><th>Status</th><th>Last opened</th></tr>
       ${games.map((g) => `<tr><td><a href="#${esc(g.hash)}">${esc(g.name)}</a></td><td>${esc(g.status)}</td>
         <td>${esc(new Date(g.updated).toLocaleDateString())}</td></tr>`).join('')}</table></section>` : ''}
-    <section class="card"><h2>Open a link</h2>
-      <form id="paste" class="form"><label>If clicking a link doesn't work, paste it here
-        <textarea name="link" rows="2" required></textarea></label><p class="error" hidden></p>
-        <button type="submit" class="secondary">Open</button></form></section>`);
+`);
 
   const form = document.getElementById('create') as HTMLFormElement;
   const eraSel = form.elements.namedItem('era') as HTMLSelectElement;
@@ -331,11 +328,6 @@ function homeScreen(): void {
     showInAddressBar(hash);
     remember(game.link, hash, statusOf(game));
     createdScreen(game, hash);
-  });
-  formAction(document.getElementById('paste') as HTMLFormElement, async (data) => {
-    const text = String(data.get('link') ?? '').trim();
-    if (!text.includes('#')) throw new LinkError('That doesn\'t look like a Battle Lines link.');
-    location.hash = text.slice(text.indexOf('#') + 1);
   });
 }
 
