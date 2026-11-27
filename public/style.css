@@ -213,3 +213,5 @@ header.top { position: sticky; top: 0; z-index: 30; gap: 12px; flex-wrap: wrap; 
 .header-actions button.secondary { background: #e7e0d0; color: var(--ink); }
 #app button[data-major] { display: none; }
 @media (max-width: 600px) { .header-actions { order: 3; width: 100%; margin-left: 0; } .header-actions button { flex: 1; } }
+/* Long press on a unit shows its info box on phones (#43): no callout menu or text selection there */
+.mapwrap { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }

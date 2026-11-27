@@ -94,7 +94,7 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 - Every hex has an elevation (0 and up), generated with the map from its seed, so it isn't carried in links.
   Hills sit one level above the ground around them. The map shades lower ground darker, writes each hex's
   height at its top, and draws edges with a drop of 2 or more as cliffs.
-- The map scrolls and zooms. Hovering over a unit (tapping an enemy, on a touch screen) shows an info box with its
+- The map scrolls and zooms. Hovering over a unit (a long press, or tapping an enemy, on a touch screen, #43) shows an info box with its
   details and what will happen to it this turn. Orders are given on the map alone (#39): click your unit,
   then a highlighted hex to move it (planned from where it started the turn, so clicking again re-plans
   the move), drag sideways on its new position to turn it, and click a marked enemy to attack (moving or

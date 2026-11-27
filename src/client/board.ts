@@ -191,11 +191,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   function onHexClick(hex: HexKey): void {
     const unit = ownUnit(selected);
+    // Any ordinary tap or click closes a box opened by a click or a long press (#43).
+    const wasPinned = pinned;
+    pinned = null;
     if (unit && canOrder()) {
       // (#39) Click a highlighted hex to move there by the cheapest route; its starting hex to stay put;
       // its planned position does nothing (press and drag there to turn it).
       if (hex === unit.hex && pathOf(unit.id).length) { setPath(unit.id, []); return render(); }
-      if (hex === plannedEnd(unit).hex) return;
+      if (hex === plannedEnd(unit).hex) return render();
       const { routes, stops } = reachable(unit);
       if (stops.has(hex)) {
         const steps: HexKey[] = [];
@@ -223,7 +226,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       return render();
     }
     if (here && !here.own && ctx.mode !== 'deploy') { // an enemy: show its info box, keep the selection
-      pinned = pinned === here.id ? null : here.id;
+      pinned = wasPinned === here.id ? null : here.id;
       return render();
     }
     selected = here && here.own && here.id !== selected ? here.id : null;
@@ -796,6 +799,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (rotating.moved && facing !== plannedEnd(ownUnit(rotating.unit)!).facing) {
       orders[rotating.unit] = { ...orders[rotating.unit], path: pathOf(rotating.unit), facing, target: undefined };
       dirty = true;
+      pinned = null;
       render();
     }
   });
@@ -807,6 +811,36 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const endRotate = () => { if (rotating?.moved) swallowClick = true; rotating = null; };
   wrap.addEventListener('pointerup', endRotate);
   wrap.addEventListener('pointercancel', endRotate);
+
+  // Long press (#43): on a touch screen, pressing and holding on a unit shows its info box (there is
+  // no hover). It only shows the box: the tap that ends it does nothing else. Moving cancels it.
+  const LONG_PRESS_MS = 500;
+  let press: { timer: number; x: number; y: number } | null = null;
+  const cancelPress = () => { if (press) { clearTimeout(press.timer); press = null; } };
+  wrap.addEventListener('pointerdown', (ev) => {
+    cancelPress();
+    if (ev.pointerType !== 'touch') return;
+    const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
+    const unit = hex ? units().find((u) => u.hex === hex) : undefined;
+    if (!unit) return;
+    press = { x: ev.clientX, y: ev.clientY, timer: window.setTimeout(() => {
+      press = null;
+      if (rotating?.moved) return;
+      rotating = null;
+      hovered = null;
+      pinned = unit.id;
+      swallowClick = true;
+      showInfo();
+    }, LONG_PRESS_MS) };
+  });
+  wrap.addEventListener('pointermove', (ev) => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 10) cancelPress(); });
+  wrap.addEventListener('pointerup', () => {
+    if (press) { cancelPress(); return; }
+    // A long press already fired: the click that may follow is swallowed; clear the flag if none comes.
+    if (swallowClick) setTimeout(() => { swallowClick = false; }, 400);
+  });
+  wrap.addEventListener('pointercancel', cancelPress);
+  wrap.addEventListener('contextmenu', (ev) => { if ((ev.target as Element).closest('[data-hex]')) ev.preventDefault(); });
 
   // Click on the map (ignoring the end of a mouse drag; touch screens scroll natively).
   let drag: { x: number; y: number; left: number; top: number; moved: boolean } | null = null;
