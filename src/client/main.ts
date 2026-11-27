@@ -70,38 +70,73 @@ function page(html: string): void {
   app.innerHTML = `<div class="narrow">${html}</div>`;
 }
 
-function shareCard(hash: string, title: string, text: string, subject: string): string {
+function shareCard(hash: string, title: string, text: string, subject: string, withPicture = false): string {
   const url = urlFor(hash);
   const body = `${text}\n\n${url}\n`;
   return `<div class="card share">
     <h3>${esc(title)}</h3>
     <p class="small">${esc(text)}</p>
+    ${withPicture ? '<img class="pic-preview" alt="A picture of the battlefield this turn" hidden>' : ''}
     <textarea class="linkbox" readonly rows="3">${esc(url)}</textarea>
     <div class="row">
-      <button data-share="copy" data-major>Copy link</button>
+      <button data-share="copy" data-major>Copy link${withPicture ? ' and picture' : ''}</button>
       <a class="button secondary" data-share="email" href="mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Email…</a>
       ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
+      ${withPicture ? '<button class="secondary" data-share="download">Download picture</button>' : ''}
     </div>
-    <p class="small">The link <b>is</b> the game (${url.length} characters). Send all of it.</p>
+    <p class="small share-note">${withPicture
+      ? 'Copy link and picture, then paste: into an email you get the picture, and clicking it opens the game; into a chat you get the link. Email… opens your mail app with the link only.'
+      : `The link <b>is</b> the game (${url.length} characters). Send all of it.`}</p>
   </div>`;
 }
 
-function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: () => void): void {
+/** The turn's picture (#46), for the share card: made once on demand. */
+interface SharePicture { blob: () => Promise<Blob>; name: string }
+
+function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: () => void, picture?: SharePicture): void {
   const url = urlFor(hash);
+  const note = root.querySelector<HTMLElement>('.share-note');
+  const canShareFiles = (() => { try { return !!navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] }); } catch { return false; } })();
   root.querySelectorAll<HTMLElement>('[data-share]').forEach((btn) => {
     btn.onclick = async () => {
       onShared?.();
-      if (btn.dataset.share === 'email') return; // the mailto: link opens the mail app itself
-      if (btn.dataset.share === 'copy') {
+      const kind = btn.dataset.share;
+      if (kind === 'email') return; // the mailto: link opens the mail app itself
+      if (kind === 'copy') {
         try {
-          await navigator.clipboard.writeText(url);
+          if (picture && typeof ClipboardItem !== 'undefined') {
+            // #47: one copy holds the picture wrapped in the link (pasted into an email or a document) and the
+            // plain link (pasted into a chat). The clipboard is written at once, with the picture to follow,
+            // so browsers that need the click to be "fresh" (Safari) accept it.
+            const html = picture.blob().then((b) => new Promise<Blob>((ok) => {
+              const r = new FileReader();
+              r.onload = () => ok(new Blob([`<a href="${esc(url)}"><img src="${r.result}" alt="${esc(subject)}" width="600"></a><br><a href="${esc(url)}">${esc(subject)}</a>`], { type: 'text/html' }));
+              r.readAsDataURL(b);
+            }));
+            await navigator.clipboard.write([new ClipboardItem({ 'text/html': html, 'text/plain': new Blob([url], { type: 'text/plain' }) })]);
+          } else {
+            await navigator.clipboard.writeText(url);
+          }
           btn.textContent = 'Copied ✓';
         } catch {
-          root.querySelector<HTMLTextAreaElement>('.linkbox')?.select();
-          btn.textContent = 'Select and copy the link above';
+          try { await navigator.clipboard.writeText(url); btn.textContent = 'Link copied ✓ (without the picture)'; } catch {
+            root.querySelector<HTMLTextAreaElement>('.linkbox')?.select();
+            btn.textContent = 'Select and copy the link above';
+          }
         }
+      } else if (kind === 'download' && picture) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(await picture.blob());
+        a.download = picture.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        if (note) note.textContent = `Saved as ${picture.name}: attach it to your post or email, with the link.`;
       } else {
-        try { await navigator.share({ title: subject, text: subject, url }); } catch { /* cancelled */ }
+        // Share…: the picture and the link together where the device can share files; the link alone otherwise.
+        try {
+          if (picture && canShareFiles) await navigator.share({ files: [new File([await picture.blob()], picture.name, { type: 'image/png' })], title: subject, text: `${subject}\n${url}` });
+          else await navigator.share({ title: subject, text: subject, url });
+        } catch { /* cancelled */ }
       }
     };
   });
@@ -109,70 +144,31 @@ function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: 
 }
 
 /**
- * The end-turn dialog (#44): what the turn does, then the link for the next player with Copy, Email and
- * Share. Nothing is saved or sent until a share button is used (onShared, once); then Done shows the
- * result. Cancel or × goes back to giving orders.
+ * The end-turn dialog (#44): what the turn does, then the link for the next player, with the picture of
+ * the turn (#46, #47), Copy, Email, Share and Download. Nothing is saved or sent until one of them is used
+ * (onShared, once); then Done shows the result. Cancel or × goes back to giving orders.
  */
 function sendDialog(title: string, summaryHtml: string, hash: string, cardTitle: string, cardText: string, subject: string,
   onShared: () => void, onDone: () => void, picture?: { make: () => Promise<Blob>; name: string }): void {
   let shared = false;
-  const canShareFiles = (() => { try { return !!navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] }); } catch { return false; } })();
-  const canCopyImage = typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
-  const dlg = openDialog(title, `<div class="dlg-summary">${summaryHtml}</div>
-    ${shareCard(hash, cardTitle, cardText, subject)}
-    ${picture ? `<div class="card picture"><h3>Share a picture of the turn</h3>
-      <p class="small">A picture of the busy part of the board, to catch the eye in a post or an email.</p>
-      <img class="pic-preview" alt="A picture of the battlefield" hidden>
-      <div class="row">${canShareFiles ? '<button data-pic="share">Share picture…</button>' : ''}
-        ${canCopyImage ? `<button class="${canShareFiles ? 'secondary' : ''}" data-pic="copy">Copy picture with link</button>` : ''}
-        <button class="secondary" data-pic="download">Download picture</button></div>
-      <p class="small pic-note"></p></div>` : ''}
+  const dlg = openDialog(title, `${summaryHtml ? `<div class="dlg-summary">${summaryHtml}</div>` : ''}
+    ${shareCard(hash, cardTitle, cardText, subject, !!picture)}
     <div class="row dlg-buttons"><button data-done hidden>Done</button><button class="secondary" data-dialog-close>Cancel</button></div>`);
   const markShared = () => {
     if (!shared) { shared = true; onShared(); }
     dlg.querySelector<HTMLButtonElement>('[data-done]')!.hidden = false;
   };
-  wireShare(dlg, hash, subject, markShared);
-  dlg.querySelector('[data-done]')!.addEventListener('click', () => { dlg.close(); onDone(); });
-  if (!picture) return;
-  // The picture (#46), made once, shown as a small preview, then shared, copied or downloaded.
-  const url = urlFor(hash);
-  const note = dlg.querySelector<HTMLElement>('.pic-note')!;
   let made: Promise<Blob> | null = null;
-  const blob = () => (made ??= picture.make());
-  void blob().then((b) => {
+  const pic = picture ? { blob: () => (made ??= picture.make()), name: picture.name } : undefined;
+  wireShare(dlg, hash, subject, markShared, pic);
+  dlg.querySelector('[data-done]')!.addEventListener('click', () => { dlg.close(); onDone(); });
+  if (!pic) return;
+  void pic.blob().then((b) => {
     const img = dlg.querySelector<HTMLImageElement>('.pic-preview')!;
     img.src = URL.createObjectURL(b);
     img.hidden = false;
-  }).catch(() => { note.textContent = 'The picture could not be made on this device.'; });
-  dlg.querySelectorAll<HTMLButtonElement>('[data-pic]').forEach((btn) => {
-    btn.onclick = async () => {
-      let b: Blob;
-      try { b = await blob(); } catch { note.textContent = 'The picture could not be made on this device.'; return; }
-      markShared();
-      const kind = btn.dataset.pic;
-      if (kind === 'share') {
-        try { await navigator.share({ files: [new File([b], picture.name, { type: 'image/png' })], title: subject, text: `${subject}\n${url}` }); } catch { /* cancelled */ }
-      } else if (kind === 'copy') {
-        // The picture wrapped in the link, for pasting into an email; the plain link for anywhere else.
-        const dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(b); });
-        const html = `<a href="${esc(url)}"><img src="${dataUrl}" alt="${esc(subject)}" width="600"></a><br><a href="${esc(url)}">${esc(subject)}</a>`;
-        try {
-          await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([url], { type: 'text/plain' }) })]);
-          note.textContent = 'Copied: paste it into an email. The picture opens the game when clicked.';
-        } catch {
-          try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); note.textContent = 'Picture copied (without the link: paste the link too).'; }
-          catch { note.textContent = 'This browser would not copy the picture: use Download picture.'; }
-        }
-      } else {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(b);
-        a.download = picture.name;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-        note.textContent = `Saved as ${picture.name}: attach it to your post or email, with the link.`;
-      }
-    };
+  }).catch(() => {
+    dlg.querySelector<HTMLElement>('.share-note')!.textContent = 'The picture could not be made on this device: Copy link copies the link alone.';
   });
 }
 
