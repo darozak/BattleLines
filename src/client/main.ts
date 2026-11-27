@@ -287,7 +287,7 @@ function playScreen(game: Game): void {
     reports: reportSections(link, turnsSince(link, me)),
     notice,
     preview: (orders) => previewTurn(state, orders),
-    attackOptions: (unitId, hex) => attackOptions(state, unitId, hex),
+    attackOptions: (unitId, hex, facing) => attackOptions(state, unitId, hex, facing),
     onEndTurn: async (orders) => {
       const ended = endTurn(game, orders);
       const hash = await encodeGame(ended.link);

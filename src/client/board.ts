@@ -1,13 +1,13 @@
 // The battle board: a scrollable, zoomable hex map with a side panel (unit tables, datasheets,
 // orders, reports). Clicking a unit, in the table or on the map, zooms the map to it and opens
 // its datasheet; for the player's own units the datasheet has their move and facing orders.
-import { parse, neighbors, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
+import { parse, neighbors, distance, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
 import { TERRAIN, stepCost } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
 import type { AttackOption, TurnPreview } from '../shared/engine.js';
-import { RALLY_RANGE } from '../shared/engine.js';
+import { RALLY_RANGE, FIRE_FULL_RANGE } from '../shared/engine.js';
 import type { Army, Deployment, Placement } from '../shared/setup.js';
 import { esc } from './util.js';
 
@@ -46,7 +46,7 @@ export interface BoardContext {
   /** Exactly what ending the turn with these orders would do (orders mode). */
   preview?: (orders: PlayerOrders) => TurnPreview;
   /** The enemies a unit could attack from a hex, each with its tally sheet. */
-  attackOptions?: (unitId: UnitId, hex: HexKey) => AttackOption[];
+  attackOptions?: (unitId: UnitId, hex: HexKey, facing: Facing) => AttackOption[];
   /** Called after each render so the page can wire up its own buttons in topCard. */
   afterRender?: (root: HTMLElement) => void;
 }
@@ -393,7 +393,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       const mx = (a.x + t.x) / 2;
       const my = (a.y + t.y) / 2;
       out.push(`<g class="preview-attack${e.attacker === selected || e.target === selected ? ' active' : ''}">`
-        + `<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hits ? '#b3261e' : '#666'}" marker-end="url(#arrow)"/>`
+        + `<polyline class="path" points="${polyline([e.attackerHex, e.targetHex])}" stroke="${e.hits ? '#b3261e' : '#666'}"${e.ranged ? ' stroke-dasharray="7 4"' : ''} marker-end="url(#arrow)"/>`
         + `<circle cx="${mx}" cy="${my}" r="8" fill="${e.hits ? '#b3261e' : '#666'}"/><text x="${mx}" y="${my}">${e.hits}</text></g>`);
     }
     if (ctx.mode === 'deploy') {
@@ -433,7 +433,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       case 'attack': {
         const target = unitDesc(e.target, e.targetOwner, e.targetType);
         const arc = e.arc === 'front' ? '' : ` in the ${e.arc}`;
-        return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} attacked ${target}${arc}: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
+        return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} ${e.ranged ? 'fired at' : 'attacked'} ${target}${arc}: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
       }
       case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
       case 'morale': return e.held
@@ -564,15 +564,17 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
             ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
       // Combat: who this unit can attack from where it will stop, and exactly what each attack would do.
       const endHex = pv?.endHex[own.id] ?? own.hex;
-      const opts = ctx.attackOptions?.(own.id, endHex) ?? [];
+      const endFacing = pv?.endFacing[own.id] ?? end.facing;
+      const opts = ctx.attackOptions?.(own.id, endHex, endFacing) ?? [];
       const made = pvAttacks().find((e) => e.attacker === own.id);
+      const fires = opts.some((o) => o.ranged);
       options += `<div class="ds-section"><h4>Combat</h4>${!opts.length
-        ? `<p class="small">No enemy next to ${label(endHex)}: no attack this turn.</p>`
-        : `<p class="small">After moving, ${esc(own.name)} attacks one enemy next to it${opts.length > 1 ? '. Choose which:' : ':'}</p>
+        ? `<p class="small">No enemy next to ${label(endHex)}${ds.range ? ` and none to fire at (within ${ds.range} hexes, in front and in sight)` : ''}: no attack this turn.</p>`
+        : `<p class="small">After moving, ${esc(own.name)} ${fires ? `fires at one enemy within ${ds.range} hexes, in front and in sight` : 'attacks one enemy next to it'}${opts.length > 1 ? '. Choose which:' : ':'}</p>
           <div class="targets">${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
-            <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
+            <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.ranged ? ` (fire, ${distance(endHex, o.target.hex)} hexes${o.arc === 'front' ? '' : `, ${o.arc}`})` : o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
           ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` + (pvMorale(made.target) ? moraleHtml(pvMorale(made.target)!) : '') : ''}
-          ${orders[own.id]?.target ? '<button class="link" data-action="target-auto">Clear target (attack the weakest)</button>' : ''}`}</div>`;
+          ${orders[own.id]?.target ? `<button class="link" data-action="target-auto">Clear target (${fires ? 'fire at the nearest' : 'attack the weakest'})</button>` : ''}`}</div>`;
     }
     if (enemy && ctx.mode === 'orders') {
       const on = pvAttacks().filter((e) => e.target === enemy.id);
@@ -588,6 +590,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <tr><th>Strength</th><td>${unit.strength} / ${ds.strength} ${strengthBar(unit.strength, ds.strength, color)}</td></tr>
         <tr><th>Move</th><td>${ds.move}</td></tr>
         <tr><th>Climb</th><td>${ds.climb} <span class="small">(level${ds.climb === 1 ? '' : 's'} up or down per step)</span></td></tr>
+        <tr><th>Fire</th><td>${ds.range ? `${ds.fire} · range ${ds.range} hexes <span class="small">(in front and in sight; −1 per hex beyond ${FIRE_FULL_RANGE})</span>` : '— <span class="small">(close combat only)</span>'}</td></tr>
         <tr><th>Morale</th><td>${ds.morale}${ds.rally ? ` · rallies friends within ${RALLY_RANGE} hexes (+${ds.rally})` : ''}</td></tr>
         <tr><th>Facing</th><td>${FACING_NAMES[unit.facing]} ${FACING_ARROWS[unit.facing]}</td></tr>
         <tr><th>Sight</th><td>${ds.sight}${t.sightBonus ? ` <span class="small">(+${t.sightBonus} from ${t.name.toLowerCase()})</span>` : ''}</td></tr>
@@ -642,14 +645,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       const affordable = used + u.points <= d.pointLimit;
       const n = placements.filter((pl) => pl.type === type).length;
       return `<tr class="${placing === type ? 'sel' : ''}"><td><span class="counter mini">${esc(u.code)}</span></td><td>${esc(u.name)}${n ? ` <span class="small">×${n}</span>` : ''}</td>
-        <td>${u.move}</td><td>${u.climb}</td><td>${u.strength}</td><td>${u.morale}${u.rally ? '★' : ''}</td><td><b>${u.points}</b></td>
+        <td>${u.move}</td><td>${u.climb}</td><td>${u.strength}</td><td>${u.range ? `${u.fire}/${u.range}` : '–'}</td><td>${u.morale}${u.rally ? '★' : ''}</td><td><b>${u.points}</b></td>
         <td><button class="small-btn${placing === type ? '' : ' secondary'}" data-action="place" data-type="${esc(type)}" ${affordable ? '' : 'disabled'} title="${placing === type ? 'Placing: click hexes in your zone' : 'Place this unit'}">${placing === type ? 'Placing' : 'Place'}</button></td></tr>`;
     }).join('');
     return `<div class="card deploy"><h3>${esc(army.name)} <button class="link" data-action="army-change">change army</button></h3>
       <div class="points"><span class="bar"><span style="width:${Math.min(100, (used / d.pointLimit) * 100)}%"></span></span>
         <b>${used}</b> of ${d.pointLimit} points · ${plural(placements.length, 'unit')}</div>
       <div class="tablewrap"><table class="unittable roster">
-        <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th title="Morale (★ rallies nearby friends)">Mor</th><th>Pts</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Unit</th><th>Mv</th><th>Climb</th><th>Str</th><th title="Fire / range in hexes (– close combat only)">Fire</th><th title="Morale (★ rallies nearby friends)">Mor</th><th>Pts</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <p class="small">${placing ? `Click a highlighted hex in your starting zone to place a ${esc(view.datasheets[placing].name)}. Click a placed unit to remove it.` : 'Press Place, then click hexes in your starting zone (highlighted on the map).'}</p>
       <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button></div></div>`;
@@ -662,7 +665,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const items = events.map((e) => {
       if (e.type === 'attack') {
         const arc = e.arc === 'front' ? '' : ` (${e.arc})`;
-        return `<li><details><summary>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))} → ${esc(unitDesc(e.target, e.targetOwner, e.targetType))}${arc}: ${e.attack} vs ${e.defence}, <b>${plural(e.hits, 'hit')}</b></summary>${tallyHtml(e)}</details></li>`;
+        return `<li><details><summary>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))} ${e.ranged ? 'fires at' : '→'} ${esc(unitDesc(e.target, e.targetOwner, e.targetType))}${arc}: ${e.attack} vs ${e.defence}, <b>${plural(e.hits, 'hit')}</b></summary>${tallyHtml(e)}</details></li>`;
       }
       if (e.type === 'halt') return `<li class="warn">${esc(unitDesc(e.unit, e.owner))} will stop at ${label(e.hex)} (${esc(e.reason)}).</li>`;
       if (e.type === 'destroyed') return `<li><b>${esc(unitDesc(e.unit, e.owner, e.unitType))} will be destroyed.</b></li>`;

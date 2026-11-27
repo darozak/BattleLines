@@ -35,6 +35,10 @@ export interface Datasheet {
   morale: number;
   /** Morale added to each friendly unit within RALLY_RANGE hexes that checks morale (0 for most units). */
   rally: number;
+  /** Firepower of a ranged attack (0 for units that cannot fire, such as cavalry). */
+  fire: number;
+  /** How many hexes the unit can fire (0: close combat only). */
+  range: number;
 }
 
 export interface GameMap {
@@ -147,6 +151,8 @@ export interface AttackEvent {
   targetOwner: PlayerId;
   targetType: string;
   targetHex: HexKey;
+  /** True for a ranged attack (fire); false for close combat with an adjacent enemy. */
+  ranged: boolean;
   /** Which of the target's arcs the attack came from. */
   arc: 'front' | 'flank' | 'rear';
   /** Every modifier that decided the outcome. */

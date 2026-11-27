@@ -212,42 +212,67 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
 
 export const BASE_DEFENCE = 3;
 export const ARC_BONUS = { front: 0, flank: 1, rear: 2 } as const;
+/** Defence against a ranged attack, before cover. */
+export const FIRE_DEFENCE = 2;
+/** Fire at this many hexes or fewer is at full strength; −1 for each hex beyond. */
+export const FIRE_FULL_RANGE = 2;
+
+type AttackResult = Pick<AttackEvent, 'ranged' | 'arc' | 'tally' | 'attack' | 'defence' | 'hits'>;
 
 /**
  * The tally sheet for one unit attacking another: attack against defence, every modifier listed.
- * `attackerHex` is where the attacker will be when it attacks (after moving).
+ * `attackerHex` is where the attacker will be when it attacks (after moving). Next to the target it is
+ * close combat; further away it is a ranged attack (fire).
  */
-export function combatTally(state: GameState, attacker: Unit, attackerHex: HexKey, target: Unit): Pick<AttackEvent, 'arc' | 'tally' | 'attack' | 'defence' | 'hits'> {
+export function combatTally(state: GameState, attacker: Unit, attackerHex: HexKey, target: Unit): AttackResult {
   const arc = arcOf(target.hex, target.facing, attackerHex);
   const cover = terrainAt(state.map, target.hex);
-  const tally: TallyLine[] = [
-    { side: 'attack', label: `${attacker.name} strength`, value: attacker.strength },
-  ];
+  const range = distance(attackerHex, target.hex);
+  const ranged = range > 1;
+  const tally: TallyLine[] = ranged
+    ? [{ side: 'attack', label: `${attacker.name} fire`, value: stats(state, attacker).fire }]
+    : [{ side: 'attack', label: `${attacker.name} strength`, value: attacker.strength }];
+  if (ranged && range > FIRE_FULL_RANGE) tally.push({ side: 'attack', label: `range (${range} hexes)`, value: FIRE_FULL_RANGE - range });
   if (ARC_BONUS[arc]) tally.push({ side: 'attack', label: `${arc} attack`, value: ARC_BONUS[arc] });
-  if (hasBridge(state.map, attackerHex, target.hex)) tally.push({ side: 'attack', label: 'across a bridge', value: BRIDGE_ATTACK });
-  else if (hasRiver(state.map, attackerHex, target.hex)) tally.push({ side: 'attack', label: 'across a river', value: RIVER_ATTACK });
+  if (!ranged && hasBridge(state.map, attackerHex, target.hex)) tally.push({ side: 'attack', label: 'across a bridge', value: BRIDGE_ATTACK });
+  else if (!ranged && hasRiver(state.map, attackerHex, target.hex)) tally.push({ side: 'attack', label: 'across a river', value: RIVER_ATTACK });
   const height = elevationAt(state.map, attackerHex) - elevationAt(state.map, target.hex);
   if (height > 0) tally.push({ side: 'attack', label: `higher ground (${height} above)`, value: height });
-  if (height < 0) tally.push({ side: 'attack', label: `attacking uphill (${-height} below)`, value: height });
-  tally.push({ side: 'defence', label: 'base defence', value: BASE_DEFENCE });
+  if (height < 0) tally.push({ side: 'attack', label: `${ranged ? 'firing' : 'attacking'} uphill (${-height} below)`, value: height });
+  tally.push(ranged
+    ? { side: 'defence', label: 'base defence against fire', value: FIRE_DEFENCE }
+    : { side: 'defence', label: 'base defence', value: BASE_DEFENCE });
   if (cover.defense > 0) tally.push({ side: 'defence', label: `cover (${cover.name.toLowerCase()})`, value: cover.defense });
   if (cover.defense < 0) tally.push({ side: 'defence', label: `exposed (${cover.name.toLowerCase()})`, value: cover.defense });
   const attack = tally.filter((t) => t.side === 'attack').reduce((n, t) => n + t.value, 0);
   const defence = tally.filter((t) => t.side === 'defence').reduce((n, t) => n + t.value, 0);
-  return { arc, tally, attack, defence, hits: Math.max(0, attack - defence) };
+  return { ranged, arc, tally, attack, defence, hits: Math.max(0, attack - defence) };
 }
 
-/** Enemies a unit could attack from a hex: every living enemy next to it. */
-export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey): Unit[] {
+/** Whether a unit at `hex` facing `facing` can fire at `target`: in range, in its front arc and in sight. */
+export function canFireAt(state: GameState, attacker: Unit, hex: HexKey, facing: Facing, target: HexKey): boolean {
+  const range = stats(state, attacker).range;
+  const d = distance(hex, target);
+  return range > 1 && d > 1 && d <= range && arcOf(hex, facing, target) === 'front' && canSee(state, hex, target, range);
+}
+
+/**
+ * Enemies a unit could attack from a hex: every living enemy next to it (close combat, weakest first);
+ * if there are none, every enemy it can fire at (nearest first, then weakest).
+ */
+export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey, facing: Facing = attacker.facing): Unit[] {
   const adj = new Set(neighbors(hex));
-  return alive(state)
-    .filter((o) => o.owner !== attacker.owner && adj.has(o.hex))
-    .sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
+  const enemies = alive(state).filter((o) => o.owner !== attacker.owner);
+  const close = enemies.filter((o) => adj.has(o.hex));
+  if (close.length) return close.sort((a, b) => a.strength - b.strength || a.id.localeCompare(b.id));
+  return enemies.filter((o) => canFireAt(state, attacker, hex, facing, o.hex))
+    .sort((a, b) => distance(hex, a.hex) - distance(hex, b.hex) || a.strength - b.strength || a.id.localeCompare(b.id));
 }
 
 function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrders, events: GameEvent[]): void {
   // Each of the active player's units next to an enemy attacks it: the ordered target if it is in
-  // reach, otherwise the weakest. All attacks land together, after movement.
+  // reach, otherwise the weakest. A unit with no enemy next to it fires, if it can, at the ordered
+  // target or else the nearest enemy in range. All attacks land together, after movement.
   const units = alive(state);
   const hits = new Map<UnitId, number>();
   for (const u of units) {
@@ -424,23 +449,27 @@ export interface TurnPreview {
   events: GameEvent[];
   /** Where each of the active player's units would end up. */
   endHex: Record<UnitId, HexKey>;
+  /** Which way each of the active player's units would face at the end. */
+  endFacing: Record<UnitId, Facing>;
 }
 
 /** Run the active player's planned orders through the rules without committing them. */
 export function previewTurn(state: GameState, orders: PlayerOrders): TurnPreview {
   const active = currentPlayer(state);
   const { state: after, events } = resolvePlayerTurn(state, orders);
-  const endHex = Object.fromEntries(after.units.filter((u) => u.owner === active).map((u) => [u.id, u.hex]));
-  return { events, endHex };
+  const mine = after.units.filter((u) => u.owner === active);
+  const endHex = Object.fromEntries(mine.map((u) => [u.id, u.hex]));
+  const endFacing = Object.fromEntries(mine.map((u) => [u.id, u.facing]));
+  return { events, endHex, endFacing };
 }
 
-export interface AttackOption extends Pick<AttackEvent, 'arc' | 'tally' | 'attack' | 'defence' | 'hits'> {
+export interface AttackOption extends AttackResult {
   target: Unit;
 }
 
 /** Every enemy a unit could attack from `hex`, with the tally sheet for each. */
-export function attackOptions(state: GameState, unitId: UnitId, hex: HexKey): AttackOption[] {
+export function attackOptions(state: GameState, unitId: UnitId, hex: HexKey, facing?: Facing): AttackOption[] {
   const unit = state.units.find((u) => u.id === unitId);
   if (!unit) return [];
-  return targetsFrom(state, unit, hex).map((target) => ({ target, ...combatTally(state, unit, hex, target) }));
+  return targetsFrom(state, unit, hex, facing ?? unit.facing).map((target) => ({ target, ...combatTally(state, unit, hex, target) }));
 }

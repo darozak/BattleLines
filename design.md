@@ -101,14 +101,20 @@ Everything is after `#`, which browsers never send to the web server, so the hos
    stayed put keeps its hex, otherwise the one that got there first does, and the other stops on the last
    free hex of its route. The map only offers hexes where a unit can actually stop.
 2. **Facing:** units turn to their ordered facing.
-3. **Combat:** each of the active player's units next to an enemy attacks it: the target in its orders if
-   that enemy is in reach, otherwise the weakest. All attacks land together.
+3. **Combat:** each of the active player's units next to an enemy attacks it in close combat: the target
+   in its orders if that enemy is in reach, otherwise the weakest. Units with no enemy next to them may
+   fire (below). All attacks land together.
    - **Attack** = the attacker's strength, +1 from the target's flank, +2 from its rear, + the attacker's
      height above the target (or − its height below it, when attacking uphill).
      Attacking across a river is −2, across a bridge −1.
    - **Defence** = 3 (base), + the cover of the target's hex (light forest and hills 1; dense forest, ruins
      and villages 2).
    - **Hits** = attack − defence, never below 0. Each hit removes one strength point; a unit at 0 is destroyed.
+   - **Ranged attacks:** a unit with no enemy next to it fires instead, if its datasheet gives it a range:
+     at the ordered target, or else the nearest enemy (then the weakest) within range, in its front arc
+     (the three hexsides it faces) and in line of sight (no hex between blocks sight). Attack = its
+     **fire**, − 1 for each hex beyond 2, + flank/rear and height as above (rivers don't matter); defence
+     = 2 + cover. Cavalry can't fire; muskets reach 2 hexes, rifles 3–4, tanks 4–5.
 4. **Morale:** each unit that took hits, survived, and is down to half its starting strength or less checks
    morale, all against the battlefield as it stands after the attacks.
    - **Morale** = the unit's morale (on its datasheet), + the rally value of each friendly rallying unit

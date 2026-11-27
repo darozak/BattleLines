@@ -5,7 +5,7 @@
 // Browsers never send the fragment to the web server, so the host never sees games.
 
 /** Bump when the link format changes. */
-export const LINK_VERSION = 8; // 3: no dice (#21); 4: elevation (#22); 5: eras and deployment (#7); 6: friendly pass-through (#23); 7: terrain (#24); 8: morale (#27)
+export const LINK_VERSION = 9; // 3: no dice (#21); 4: elevation (#22); 5: eras and deployment (#7); 6: friendly pass-through (#23); 7: terrain (#24); 8: morale (#27); 9: ranged attacks (#28)
 
 export class LinkError extends Error {}
 

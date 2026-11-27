@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
 import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
 import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
-import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
+import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, ARC_BONUS, canFireAt, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
 import type { AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 /** Simple unit types for rule tests (the eras' own units are tested separately). */
 const TEST_UNITS: Record<string, Datasheet> = {
-  infantry: { name: 'Infantry', code: 'I', points: 20, move: 4, sight: 5, strength: 4, climb: 1, morale: 3, rally: 0 },
-  scout: { name: 'Scout', code: 'S', points: 15, move: 6, sight: 7, strength: 2, climb: 2, morale: 2, rally: 0 },
-  heavy: { name: 'Heavy', code: 'H', points: 40, move: 3, sight: 4, strength: 6, climb: 1, morale: 4, rally: 1 },
+  infantry: { name: 'Infantry', code: 'I', points: 20, move: 4, sight: 5, strength: 4, climb: 1, morale: 3, rally: 0, fire: 0, range: 0 },
+  scout: { name: 'Scout', code: 'S', points: 15, move: 6, sight: 7, strength: 2, climb: 2, morale: 2, rally: 0, fire: 0, range: 0 },
+  heavy: { name: 'Heavy', code: 'H', points: 40, move: 3, sight: 4, strength: 6, climb: 1, morale: 4, rally: 1, fire: 0, range: 0 },
+  rifle: { name: 'Rifles', code: 'R', points: 20, move: 4, sight: 6, strength: 3, climb: 1, morale: 3, rally: 0, fire: 4, range: 4 },
 };
 const START = [
   ['1,4', '1,7', '2,5', '0,6'], ['14,4', '14,7', '13,6', '15,5'], ['6,1', '9,1', '7,2', '8,0'], ['6,10', '9,10', '8,9', '7,11'],
@@ -35,7 +36,7 @@ function openState(players = 2): GameState {
 }
 
 const unit = (id: string, owner: string, type: string, hex: HexKey, extra: Partial<Unit> = {}): Unit =>
-  ({ id, owner, type, name: id.toUpperCase(), hex, facing: 0, strength: { infantry: 4, scout: 2, heavy: 6 }[type]!, ...extra });
+  ({ id, owner, type, name: id.toUpperCase(), hex, facing: 0, strength: { infantry: 4, scout: 2, heavy: 6, rifle: 3 }[type]!, ...extra });
 
 /** Resolve a turn for a given player (whatever the state says). */
 function play(s: GameState, player: number, orders: PlayerOrders) {
@@ -245,6 +246,42 @@ test('combat: no dice, hits = attack - defence, every modifier on the tally', ()
   s.map.terrain[5 * 16 + 6] = 'dense_forest';
   assert.equal(combatTally(s, s.units[0], '5,5', s.units[1]).defence, BASE_DEFENCE + 2);
   assert.equal(inWoods.hits, 4);
+});
+
+test('ranged attacks: fire at an enemy in range, in the front arc and in sight', () => {
+  const s = openState();
+  const shooter = unit('a', 'p0', 'rifle', '4,5', { facing: facingToward('4,5', '7,5') });
+  s.units = [shooter, unit('b', 'p1', 'infantry', '7,5')];
+  const shot = play(s, 0, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
+  assert.equal(shot.ranged, true);
+  assert.deepEqual(shot.tally.filter((l) => l.side === 'attack').slice(0, 2).map((l) => [l.label, l.value]), [['A fire', 4], ['range (3 hexes)', -1]]);
+  assert.equal(shot.attack, 4 - 1 + ARC_BONUS[shot.arc]);
+  assert.deepEqual(shot.tally.filter((l) => l.side === 'defence').map((l) => [l.label, l.value]), [['base defence against fire', FIRE_DEFENCE]]);
+  assert.equal(shot.hits, Math.max(0, shot.attack - shot.defence));
+  // Out of range, behind the shooter, or out of sight: no shot.
+  const noShot = (st: GameState) => !play(st, 0, {}).events.some((e) => e.type === 'attack');
+  assert.ok(noShot({ ...s, units: [shooter, unit('b', 'p1', 'infantry', '9,5')] }), 'five hexes: out of range');
+  assert.ok(noShot({ ...s, units: [{ ...shooter, facing: facingToward('4,5', '1,5') }, unit('b', 'p1', 'infantry', '7,5')] }), 'behind');
+  const blocked = structuredClone(s);
+  const mid = line('4,5', '7,5')[1];
+  blocked.map.terrain[Number(mid.split(',')[1]) * 16 + Number(mid.split(',')[0])] = 'dense_forest';
+  assert.ok(noShot(blocked), 'dense forest in the way');
+  assert.equal(canFireAt(s, shooter, '4,5', shooter.facing, '7,5'), true);
+  // Units without a range never fire.
+  assert.ok(noShot({ ...s, units: [{ ...shooter, type: 'infantry' }, unit('b', 'p1', 'infantry', '6,5')] }));
+});
+
+test('ranged attacks: an enemy next to the unit means close combat; otherwise the ordered or nearest target', () => {
+  const s = openState();
+  const shooter = unit('a', 'p0', 'rifle', '4,5', { facing: facingToward('4,5', '7,5') });
+  s.units = [shooter, unit('near', 'p1', 'infantry', '6,5'), unit('far', 'p1', 'scout', '8,5')];
+  const atk = (orders: PlayerOrders) => play(s, 0, orders).events.find((e): e is AttackEvent => e.type === 'attack')!;
+  assert.equal(atk({}).target, 'near', 'nearest first');
+  assert.equal(atk({ a: { path: [], target: 'far' } }).target, 'far', 'the ordered target');
+  assert.equal(attackOptions(s, 'a', '4,5').length, 2);
+  s.units.push(unit('adj', 'p1', 'infantry', '5,5'));
+  const close = atk({ a: { path: [], target: 'far' } });
+  assert.deepEqual([close.target, close.ranged, close.tally[0].label], ['adj', false, 'A strength']);
 });
 
 test('morale: a unit at half strength or less holds only while its morale beats its losses', () => {
