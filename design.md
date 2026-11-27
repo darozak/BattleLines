@@ -11,7 +11,8 @@ Earlier designs are in the git history: a server-refereed version with simultane
 fog of war was dropped because it complicated play and invited players to dig into the page to peek.
 
 ## Game Lifecycle
-1. **Set up:** the first player chooses the era, the map size, the point limit and the number of players,
+1. **Set up:** the first player chooses the era, the map size, the point limit, the scenario, the number
+   of rounds (and of objectives, where the scenario allows), and the number of players,
    and names every player. The game shuffles the players into a random turn order and shows the link for
    the first player.
 2. **Turn 0, deployment:** each player in turn order opens the link, picks one of the era's armies (each
@@ -44,7 +45,8 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   (`Player2` if nothing is left). The label is only for people: the page ignores it when reading the
   link, so editing it changes nothing.
 
-- **Contents:** link version, game id, name, era, map size, point limit, map seed, player names in turn order,
+- **Contents:** link version, game id, name, era, map size, point limit, map seed, scenario, rounds,
+  number of objectives (where chosen), player names in turn order,
   the changing state (phase; each player's army; each unit's type, owner, position, facing and strength;
   scores; round and whose turn it is), and the last round of player-turns (orders and
   what happened), used for reports and replay checks.

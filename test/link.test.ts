@@ -171,3 +171,15 @@ test('link sizes stay short', async () => {
   }
   console.log(rows.join('\n'));
 });
+
+test('scenarios travel in the link: scenario, rounds and objectives are kept (#37)', async () => {
+  const g = createGame({ gameName: 'S', era: 'ww2', size: 'medium', points: 150, players: ['A', 'B'], scenario: 'decisive', rounds: 6, objectives: 1 });
+  const back = await readGame(await encodeGame(g.link));
+  assert.deepEqual([back.state.scenario, back.state.turnLimit, back.state.objectives.length], ['decisive', 6, 1]);
+  const flags = await readGame(await encodeGame(createGame({ gameName: 'F', era: 'napoleonic', size: 'small', points: 100, players: ['A', 'B', 'C'], scenario: 'flags' }).link));
+  assert.deepEqual(flags.state.objectiveOwners, ['p0', 'p1', 'p2']);
+  const plain = createGame({ gameName: 'P', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'] });
+  assert.deepEqual([plain.state.scenario, plain.state.turnLimit], ['hold', 10], 'defaults: Hold the Field, the map size\'s rounds');
+  assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'], scenario: 'nope' }), /scenario/);
+  assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'], rounds: 7 }), /rounds/);
+});

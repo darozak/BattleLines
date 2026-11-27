@@ -6,7 +6,7 @@
 //               link for the next player.
 import { mountBoard, SIDE_COLORS, SIDE_NAMES, type BoardContext, type BoardPlayer } from './board.js';
 import { esc, store } from './util.js';
-import { ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, zoneOf } from '../shared/setup.js';
+import { ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, zoneOf, SCENARIOS, ROUND_OPTIONS, OBJECTIVE_OPTIONS } from '../shared/setup.js';
 import { boardView, previewTurn, attackOptions } from '../shared/engine.js';
 import {
   createGame, endTurn, deploy, readGame, encodeGame, verifyReplay, turnsSince, packState, playerId, playerIndex,
@@ -114,7 +114,8 @@ function reportSections(link: GameLink, turns: TurnRecord[]): BoardContext['repo
 function homeScreen(): void {
   const games = Object.values(store.get<Record<string, SavedGame>>(GAMES_KEY) ?? {}).sort((a, b) => b.updated - a.updated);
   const eraOptions = Object.values(ERAS).map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
-  const sizeOptions = Object.values(MAP_SIZES).map((m) => `<option value="${esc(m.id)}" ${m.id === 'medium' ? 'selected' : ''}>${esc(m.name)} (${m.cols}×${m.rows}, ${m.turnLimit} rounds)</option>`).join('');
+  const sizeOptions = Object.values(MAP_SIZES).map((m) => `<option value="${esc(m.id)}" ${m.id === 'medium' ? 'selected' : ''}>${esc(m.name)} (${m.cols}×${m.rows})</option>`).join('');
+  const scenarioOptions = Object.values(SCENARIOS).map((sc) => `<option value="${esc(sc.id)}">${esc(sc.name)}</option>`).join('');
   const pointOptions = POINT_LIMITS.map((n) => `<option value="${n}" ${n === 150 ? 'selected' : ''}>${n} points</option>`).join('');
   page(`
     <section class="hero"><h1>Correspondence warfare, one link at a time.</h1>
@@ -126,6 +127,10 @@ function homeScreen(): void {
         <label>Era <select name="era">${eraOptions}</select></label>
         <p class="hint" id="era-about"></p>
         <label>Map size <select name="size">${sizeOptions}</select></label>
+        <label>Scenario <select name="scenario">${scenarioOptions}</select></label>
+        <p class="hint" id="scenario-about"></p>
+        <label id="objectives-row">Number of objectives <select name="objectives">${OBJECTIVE_OPTIONS.map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label>
+        <label>Rounds <select name="rounds">${ROUND_OPTIONS.map((n) => `<option value="${n}">${n} rounds</option>`).join('')}</select></label>
         <label>Point limit (per player) <select name="points">${pointOptions}</select></label>
         <label>Number of players <select name="count"></select></label>
         <div id="names"></div>
@@ -162,6 +167,25 @@ function homeScreen(): void {
       .map((n) => `<option value="${n}" ${n === Math.min(keep, maxPlayers(era)) ? 'selected' : ''}>${n}</option>`).join('');
     fillNames();
   };
+  // Scenario, objectives and rounds (#37): defaults follow the map size.
+  const sizeSel = form.elements.namedItem('size') as HTMLSelectElement;
+  const scSel = form.elements.namedItem('scenario') as HTMLSelectElement;
+  const objSel = form.elements.namedItem('objectives') as HTMLSelectElement;
+  const roundsSel = form.elements.namedItem('rounds') as HTMLSelectElement;
+  const fillScenario = () => {
+    const sc = SCENARIOS[scSel.value];
+    document.getElementById('scenario-about')!.textContent = sc.description;
+    document.getElementById('objectives-row')!.hidden = sc.objectives !== 'choose';
+  };
+  const fillSizeDefaults = () => {
+    const size = MAP_SIZES[sizeSel.value];
+    roundsSel.value = String(size.turnLimit);
+    objSel.value = String(size.objectives);
+  };
+  scSel.onchange = fillScenario;
+  sizeSel.onchange = fillSizeDefaults;
+  fillScenario();
+  fillSizeDefaults();
   eraSel.onchange = fillAbout;
   countSel.onchange = fillNames;
   fillAbout();
@@ -169,6 +193,8 @@ function homeScreen(): void {
     const game = createGame({
       gameName: String(data.get('gameName') ?? ''), era: String(data.get('era')), size: String(data.get('size')),
       points: Number(data.get('points')), players: data.getAll('player').map(String),
+      scenario: String(data.get('scenario')), rounds: Number(data.get('rounds')),
+      ...(SCENARIOS[String(data.get('scenario'))]?.objectives === 'choose' ? { objectives: Number(data.get('objectives')) } : {}),
     });
     const hash = await encodeGame(game.link);
     showInAddressBar(hash);
@@ -189,7 +215,8 @@ function createdScreen(game: Game, hash: string): void {
   const era = ERAS[state.era];
   const subject = `Battle Lines: ${link.name} — you deploy first, ${first}`;
   page(`<section class="card"><h2>${esc(link.name)}</h2>
-      <p>${esc(era.name)} · ${esc(MAP_SIZES[state.size].name)} map · ${state.pointLimit} points per player.</p>
+      <p>${esc(era.name)} · ${esc(MAP_SIZES[state.size].name)} map · ${state.pointLimit} points per player · ${state.turnLimit} rounds.</p>
+      <p><b>${esc(SCENARIOS[state.scenario].name)}</b>: ${esc(SCENARIOS[state.scenario].description)}</p>
       <h3>Turn order</h3>
       <ol class="order">${link.players.map((n, i) => `<li><span class="swatch" style="background:${SIDE_COLORS[i]}"></span> ${esc(n)} <span class="small">(${SIDE_NAMES[i]})</span></li>`).join('')}</ol>
       <p class="hint">The order was drawn at random. Each player deploys in this order, then takes their turns in it.</p>

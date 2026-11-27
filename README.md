@@ -10,8 +10,8 @@ turn at a time.
 
 ## How a game works
 
-1. **Set up.** Open the site and choose the era, the map size, the point limit and the number of
-   players, and name every player. The game puts the players in a random order.
+1. **Set up.** Open the site and choose the era, the map size, the point limit, the scenario, the
+   number of rounds and the number of players, and name every player. The game puts the players in a random order.
 2. **Deploy (turn 0).** Each player in turn picks one of the era's armies (no two players can pick the
    same one), then chooses units from it and places them in their starting zone, up to the point limit,
    and passes the link on. Once they have picked an army, **Deploy army for me** draws a random set of its
@@ -29,8 +29,10 @@ turn at a time.
    email or share it.
 5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,
    and plays their turn. Each link starts with whose turn it is, for example `…/#Deploy-Cara/…` or `…/#Round3-Bob/…`.
-6. **Win.** The battle ends after the last round, or when only one army is left. The player with the
-   most points wins.
+6. **Win.** The scenario decides how points are scored: **Hold the Field**, **King of the Hill**,
+   **Annihilation**, **Capture the Flags** or **Decisive Ground** (see the [rules](https://darozak.github.io/BattleLines/rules.html#9-scenarios-scoring-and-the-end-of-the-battle)).
+   The battle ends after the last round, or when only one army is left, and the player with the most
+   points wins.
 
 ## What's in the game
 

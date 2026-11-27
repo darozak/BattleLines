@@ -1,7 +1,7 @@
 // Game lifecycle without a server: set up → turn 0 (each player deploys) → rounds of turns → game
 // over. Every turn produces a new link (see link.ts) that the player sends to the next player.
 // Nothing is hidden: every player sees the whole battlefield.
-import { createSetupState, resolveDeployment, ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, type Deployment } from './setup.js';
+import { createSetupState, resolveDeployment, ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, SCENARIOS, ROUND_OPTIONS, OBJECTIVE_OPTIONS, type Deployment } from './setup.js';
 import { resolvePlayerTurn } from './engine.js';
 import { decodeFragment, encodeFragment, LinkError, LINK_VERSION, sha256, toB64u } from './link.js';
 import type { Facing, GameEvent, GameResult, GameState, HexKey, PlayerOrders } from './types.js';
@@ -40,6 +40,10 @@ export interface GameLink {
   points: number;
   /** Map seed. (There are no dice.) */
   seed: number;
+  /** Scenario id, number of rounds and, for scenarios that let you choose, number of objectives (#37). */
+  sc: string;
+  rounds: number;
+  obj?: number;
   /** Player names, in turn order (shuffled when the game was set up). */
   players: string[];
   s: PackedState;
@@ -63,12 +67,14 @@ export function packState(state: GameState): PackedState {
   };
 }
 
-type Setup = Pick<GameLink, 'era' | 'size' | 'points' | 'players' | 'seed'>;
+type Setup = Pick<GameLink, 'era' | 'size' | 'points' | 'players' | 'seed' | 'sc' | 'rounds' | 'obj'>;
 
 function baseState(g: Setup): GameState {
   if (!ERAS[g.era]) throw new LinkError(`This link uses an era this version doesn't have (${g.era}).`);
   if (!MAP_SIZES[g.size]) throw new LinkError(`This link uses a map size this version doesn't have (${g.size}).`);
-  return createSetupState(g.era, g.size, g.points, g.players.map((_, i) => ({ id: playerId(i), side: i })), g.seed);
+  if (!SCENARIOS[g.sc]) throw new LinkError(`This link uses a scenario this version doesn't have (${g.sc}).`);
+  return createSetupState(g.era, g.size, g.points, g.players.map((_, i) => ({ id: playerId(i), side: i })), g.seed,
+    { scenario: g.sc, rounds: g.rounds, objectives: g.obj });
 }
 
 export function unpackState(g: Setup, packed: PackedState): GameState {
@@ -130,6 +136,10 @@ export interface NewGame {
   points: number;
   /** Player names. The game shuffles them into a random turn order. */
   players: string[];
+  /** Scenario id (default Hold the Field), number of rounds (default: the map size's) and objectives. */
+  scenario?: string;
+  rounds?: number;
+  objectives?: number;
 }
 
 /** Random permutation, from the browser's (or Node's) cryptographic random numbers. */
@@ -146,6 +156,11 @@ export function createGame(g: NewGame): Game {
   if (!ERAS[g.era]) throw new LinkError('Choose an era.');
   if (!MAP_SIZES[g.size]) throw new LinkError('Choose a map size.');
   if (!POINT_LIMITS.includes(g.points)) throw new LinkError('Choose a point limit.');
+  const scenario = SCENARIOS[g.scenario ?? 'hold'];
+  if (!scenario) throw new LinkError('Choose a scenario.');
+  const rounds = g.rounds ?? MAP_SIZES[g.size].turnLimit;
+  if (!ROUND_OPTIONS.includes(rounds) && rounds !== MAP_SIZES[g.size].turnLimit) throw new LinkError('Choose the number of rounds.');
+  if (g.objectives !== undefined && !OBJECTIVE_OPTIONS.includes(g.objectives)) throw new LinkError('Choose the number of objectives.');
   const names = g.players.map((n, i) => n.trim() || `Player ${i + 1}`);
   const most = maxPlayers(ERAS[g.era]);
   if (names.length < MIN_PLAYERS || names.length > most) throw new LinkError(`A game in this era is for ${MIN_PLAYERS}–${most} players: each needs an army of their own.`);
@@ -157,6 +172,9 @@ export function createGame(g: NewGame): Game {
     size: g.size,
     points: g.points,
     seed: globalThis.crypto.getRandomValues(new Uint32Array(1))[0],
+    sc: scenario.id,
+    rounds,
+    ...(scenario.objectives === 'choose' && g.objectives !== undefined ? { obj: g.objectives } : {}),
     players: shuffle(names),
     s: { ph: 0, t: 0, c: 0, a: [], u: [], s: [], f: 0, w: null },
     h: [],

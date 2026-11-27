@@ -9,6 +9,7 @@ import type {
 } from '../shared/types.js';
 import type { AttackOption, TurnPreview } from '../shared/engine.js';
 import type { Army, Deployment, Placement } from '../shared/setup.js';
+import { SCENARIOS } from '../shared/setup.js';
 import { esc } from './util.js';
 
 type OwnUnit = Extract<VisibleUnit, { own: true }>;
@@ -367,10 +368,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       }
     }
     for (const k of view.map.roads) out.push(`<polyline class="road" points="${polyline(k.split('|'))}"/>`);
-    for (const hex of view.objectives) {
+    view.objectives.forEach((hex, i) => {
       const p = px(hex);
-      out.push(`<circle class="objective" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.8}"/>`);
-    }
+      const owner = view.objectiveOwners[i];
+      // A flag (Capture the Flags, #37) is drawn in its owner's colour, with a pennant.
+      out.push(owner
+        ? `<g class="flag"><circle class="objective" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.8}" style="stroke:${colorOf(owner)}"/>`
+          + `<path d="M${p.x - SIZE * 0.55},${p.y - SIZE * 0.85} l0,-${SIZE * 0.5} l${SIZE * 0.45},${SIZE * 0.17} l-${SIZE * 0.45},${SIZE * 0.17}" fill="${colorOf(owner)}" stroke="${colorOf(owner)}" stroke-width="1.5"/></g>`
+        : `<circle class="objective" cx="${p.x}" cy="${p.y}" r="${SIZE * 0.8}"/>`);
+    });
     const sel = ownUnit(selected);
     if (sel && canOrder()) {
       for (const hex of reachable(sel).stops) { const p = px(hex); out.push(`<polygon class="reach" points="${hexPoints(p.x, p.y)}"/>`); }
@@ -436,6 +442,17 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     return `${owner === ctx.me ? 'your' : sideOf(owner)} ${type ? dsName(type) : 'unit'}`;
   }
 
+  /** Why points were scored, by scenario (#37). */
+  function scoreWhy(e: Extract<GameEvent, { type: 'score' }>): string {
+    if (e.reason === 'kill') return `for ${unitDesc(e.unit ?? null, e.unitOwner ?? '', e.unitType)}`;
+    const i = e.hex ? view.objectives.indexOf(e.hex) : -1;
+    const owner = i >= 0 ? view.objectiveOwners[i] : null;
+    const where = e.hex ? label(e.hex) : '';
+    if (e.reason === 'flag') return `for holding ${player(owner ?? '')?.name ?? 'an enemy'}'s flag at ${where}`;
+    if (e.reason === 'final') return `for holding ${where} when the battle ended`;
+    return `for holding ${where}`;
+  }
+
   function describe(e: GameEvent): string {
     switch (e.type) {
       case 'deploy': return `${player(e.player)?.name ?? 'Someone'} deployed the ${player(e.player)?.army ?? e.army}: ${plural(e.units, 'unit')}, ${e.points} points.`;
@@ -455,7 +472,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       case 'morale': return e.held
         ? `${unitDesc(e.unit, e.owner, e.unitType)} held at ${label(e.hex)}: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`
         : `${unitDesc(e.unit, e.owner, e.unitType)} broke at ${label(e.hex)} and disbanded: morale ${e.morale} against ${plural(e.losses, 'loss', 'losses')}.`;
-      case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} for holding ${label(e.hex)}.`;
+      case 'score': return `${player(e.player)?.name ?? 'Someone'} scored ${e.points} ${scoreWhy(e)}.`;
       case 'gameover': return `Game over. ${e.reason}`;
       default: return (e as { type: string }).type;
     }
@@ -607,6 +624,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       ${ctx.topCard ?? ''}
       <div class="card"><h3>${esc(ctx.gameName)}</h3>
         <div>${finished ? 'Final round' : ctx.round === 0 ? 'Turn 0: deployment' : `Round ${ctx.round} of ${ctx.turnLimit}`}</div>
+        ${SCENARIOS[view.scenario] ? `<div class="small scenario"><b>${esc(SCENARIOS[view.scenario].name)}</b>: ${esc(SCENARIOS[view.scenario].description)}</div>` : ''}
         <ul class="players">${ctx.players.map((p) => `<li><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>
           ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''}${p.army ? ` <span class="small">(${esc(p.army)})</span>` : ''} — ${view.scores[p.id] ?? 0} pts
           ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : p.id === ctx.current ? '<span class="small">◀ to move</span>' : ''}</li>`).join('')}</ul>
@@ -698,7 +716,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       if (e.type === 'morale') {
         return `<li><details><summary>${esc(unitDesc(e.unit, e.owner, e.unitType))} checks morale: ${e.morale} vs ${plural(e.losses, 'loss', 'losses')}, ${e.held ? 'holds' : '<b>disbands</b>'}</summary>${moraleHtml(e)}</details></li>`;
       }
-      if (e.type === 'score') return `<li>You will score ${e.points} for holding ${label(e.hex)}.</li>`;
+      if (e.type === 'score') return `<li>${e.player === ctx.me ? 'You' : esc(player(e.player)?.name ?? 'Someone')} will score ${e.points} ${esc(scoreWhy(e))}.</li>`;
       if (e.type === 'gameover') return `<li><b>The battle will end: ${esc(e.reason)}</b></li>`;
       return '';
     }).filter(Boolean);
@@ -740,7 +758,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     </div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
       <span><i class="line-key road-key"></i>road</span><span><i class="line-key river-key"></i>river</span><span><i class="line-key bridge-key"></i>bridge</span>
-      <span>◌ objective</span><span>number = elevation (darker = lower)</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
+      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span>number = elevation (darker = lower)</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
   </div>
   <aside class="side" id="side"></aside>
 </div>`;

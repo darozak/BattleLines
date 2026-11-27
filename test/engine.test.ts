@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
-import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
-import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
+import { TERRAIN, edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
+import { SCENARIOS, HILL_TARGET, FLAG_POINTS, flagHex, createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
 import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, engagedBy, ARC_BONUS, canFireAt, pinnedBy, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
-import type { AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
+import type { GameEvent, AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 /** Simple unit types for rule tests (the eras' own units are tested separately). */
 const TEST_UNITS: Record<string, Datasheet> = {
@@ -19,8 +19,8 @@ const START = [
 const ROSTER = ['infantry', 'infantry', 'scout', 'heavy'];
 
 /** A battle on a flat, open 16×12 map, each player with four units at fixed hexes. */
-function openState(players = 2): GameState {
-  const s = createSetupState('ww2', 'small', 150, Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42);
+function openState(players = 2, scenario = 'hold'): GameState {
+  const s = createSetupState('ww2', 'small', 150, Array.from({ length: players }, (_, i) => ({ id: `p${i}`, side: i })), 42, { scenario });
   s.map.terrain.fill('open');
   s.map.elevation.fill(0);
   s.map.roads = [];
@@ -645,4 +645,71 @@ test('deployment: players deploy in turn, then round 1 begins with the first pla
   assert.equal(s.turn, 1);
   assert.equal(s.current, 0);
   assert.equal(s.units.length, 4);
+});
+
+// ---------------------------------------------------------------- scenarios (#37)
+
+const scoreEvents = (events: { type: string }[]) => events.filter((e): e is Extract<GameEvent, { type: 'score' }> => e.type === 'score');
+
+test('scenarios: objectives by scenario, and setup choices for rounds and objectives', () => {
+  const p = [{ id: 'p0', side: 0 }, { id: 'p1', side: 1 }];
+  const mk = (scenario: string, opts = {}) => createSetupState('ww2', 'small', 150, p, 7, { scenario, ...opts });
+  assert.equal(mk('hold').objectives.length, MAP_SIZES.small.objectives);
+  assert.equal(mk('hold', { objectives: 5, rounds: 6 }).objectives.length, 5);
+  assert.equal(mk('hold', { rounds: 6 }).turnLimit, 6);
+  assert.deepEqual(mk('hill').objectives, ['8,6']);
+  assert.deepEqual(mk('annihilation').objectives, []);
+  const f = mk('flags');
+  assert.deepEqual(f.objectives, [flagHex(MAP_SIZES.small, 0), flagHex(MAP_SIZES.small, 1)]);
+  assert.deepEqual(f.objectiveOwners, ['p0', 'p1']);
+  for (const hex of f.objectives) assert.ok(!TERRAIN[f.map.terrain[Number(hex.split(',')[1]) * 16 + Number(hex.split(',')[0])]].impassable, 'flags are never in a lake');
+  assert.equal(mk('decisive', { objectives: 1 }).objectives.length, 1);
+  assert.equal(Object.keys(SCENARIOS).length, 5);
+});
+
+test('scenarios: Hold the Field scores each turn; Decisive Ground only when the battle ends', () => {
+  for (const scenario of ['hold', 'decisive']) {
+    const s = openState(2, scenario);
+    const obj = s.objectives[0];
+    s.units = [unit('a', 'p0', 'infantry', obj), unit('z', 'p1', 'infantry', '15,11')];
+    const mid = play(s, 0, {});
+    assert.equal(scoreEvents(mid.events).length, scenario === 'hold' ? 1 : 0, scenario);
+    // The last turn of the last round: p1 moves, play wraps, the battle ends.
+    const last = resolvePlayerTurn({ ...s, current: 1, turn: s.turnLimit }, {});
+    assert.equal(last.state.finished, true);
+    const final = scoreEvents(last.events);
+    assert.deepEqual(final.map((e) => [e.player, e.reason, e.hex]), scenario === 'decisive' ? [['p0', 'final', obj]] : [], scenario);
+    if (scenario === 'decisive') assert.deepEqual(last.state.result!.winners, ['p0']);
+  }
+});
+
+test('scenarios: King of the Hill is won at once by the first to hold the hill long enough', () => {
+  const s = openState(2, 'hill');
+  s.units = [unit('a', 'p0', 'infantry', s.objectives[0]), unit('z', 'p1', 'infantry', '15,11')];
+  s.scores.p0 = HILL_TARGET - 2;
+  assert.equal(play(s, 0, {}).state.finished, false);
+  s.scores.p0 = HILL_TARGET - 1;
+  const r = play(s, 0, {});
+  assert.equal(r.state.finished, true);
+  assert.deepEqual(r.state.result!.winners, ['p0']);
+  assert.match(r.state.result!.reason, /hill/);
+});
+
+test('scenarios: Annihilation scores the point value of units destroyed or broken, for whoever brought them down', () => {
+  const s = openState(2, 'annihilation');
+  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'scout', '6,5')];
+  const r = play(s, 0, hit('a', 'b'));
+  assert.deepEqual(scoreEvents(r.events).map((e) => [e.player, e.points, e.reason, e.unit]), [['p0', TEST_UNITS.scout.points, 'kill', 'b']]);
+  // A unit destroyed by a free attack while disengaging scores for the enemy that made it.
+  s.units = [unit('a', 'p0', 'scout', '5,5', { facing: facingToward('5,5', '6,5') }), unit('b', 'p1', 'heavy', '6,5', { facing: facingToward('6,5', '5,5') }), unit('c', 'p1', 'infantry', '15,11')];
+  const fled = play(s, 0, { a: { path: ['4,5'] } });
+  assert.deepEqual(scoreEvents(fled.events).map((e) => [e.player, e.points, e.unit]), [['p1', TEST_UNITS.scout.points, 'a']]);
+});
+
+test('scenarios: Capture the Flags scores for enemy flags held, not your own', () => {
+  const s = openState(2, 'flags');
+  const [own, theirs] = s.objectives;
+  s.units = [unit('a', 'p0', 'infantry', theirs), unit('b', 'p0', 'infantry', own), unit('z', 'p1', 'infantry', '8,11')];
+  const r = play(s, 0, {});
+  assert.deepEqual(scoreEvents(r.events).map((e) => [e.player, e.points, e.reason, e.hex]), [['p0', FLAG_POINTS, 'flag', theirs]]);
 });

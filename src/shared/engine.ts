@@ -5,8 +5,9 @@
 // The movement/combat/scoring numbers below are PLACEHOLDERS until the rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
 import { terrainAt, elevationAt, stepCost, stepProblem, hasRiver, hasBridge, RIVER_ATTACK, BRIDGE_ATTACK } from './terrain.js';
+import { HILL_TARGET, FLAG_POINTS } from './setup.js';
 import type {
-  AttackEvent, Datasheet, Facing, GameEvent, GameState, MoraleEvent, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
+  AttackEvent, Datasheet, Facing, GameEvent, GameState, MoraleEvent, ScoreEvent, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
 
 const alive = (state: GameState): Unit[] => state.units.filter((u) => u.strength > 0);
@@ -394,16 +395,36 @@ function resolveMorale(state: GameState, hitIds: UnitId[], events: GameEvent[]):
   }
 }
 
-function resolveScoring(state: GameState, scorer: PlayerId, events: GameEvent[]): void {
-  // PLACEHOLDER: the active player scores 1 for each objective they occupy with no enemy adjacent.
+// ---------------------------------------------------------------- scoring and victory, by scenario (#37)
+
+/** The player holding an objective: one of their units is on it with no enemy next to it. */
+export function holderOf(state: GameState, hex: HexKey): PlayerId | null {
   const units = alive(state);
-  for (const hex of state.objectives) {
-    const holder = units.find((u) => u.hex === hex);
-    if (holder && holder.owner === scorer && enemiesAdjacent(units, holder).length === 0) {
-      state.scores[holder.owner] += 1;
-      events.push({ type: 'score', player: holder.owner, hex, points: 1 });
+  const on = units.find((u) => u.hex === hex);
+  return on && enemiesAdjacent(units, on).length === 0 ? on.owner : null;
+}
+
+function resolveScoring(state: GameState, scorer: PlayerId, events: GameEvent[]): void {
+  const score = (e: Omit<ScoreEvent, 'type'>) => { state.scores[e.player] += e.points; events.push({ type: 'score', ...e }); };
+  if (state.scenario === 'hold' || state.scenario === 'hill') {
+    for (const hex of state.objectives) if (holderOf(state, hex) === scorer) score({ player: scorer, points: 1, reason: 'hold', hex });
+  } else if (state.scenario === 'flags') {
+    state.objectives.forEach((hex, i) => {
+      const owner = state.objectiveOwners[i];
+      if (owner !== scorer && holderOf(state, hex) === scorer) score({ player: scorer, points: FLAG_POINTS, reason: 'flag', hex });
+    });
+  } else if (state.scenario === 'annihilation') {
+    // Every unit lost this turn scores its point value for whoever brought it down: the active player
+    // for enemies, or the enemy whose free attack hit one of the active player's moving units.
+    for (const e of events) {
+      const lost = e.type === 'destroyed' || (e.type === 'morale' && !e.held) ? e : null;
+      if (!lost) continue;
+      const by = lost.owner !== scorer ? scorer
+        : [...events].reverse().find((x): x is AttackEvent => x.type === 'attack' && !!x.free && x.target === lost.unit)?.attackerOwner;
+      if (by && by !== lost.owner) score({ player: by, points: state.datasheets[lost.unitType].points, reason: 'kill', unit: lost.unit, unitOwner: lost.owner, unitType: lost.unitType });
     }
   }
+  // Decisive Ground scores only when the battle ends (see resolvePlayerTurn).
 }
 
 export interface TurnResolution {
@@ -441,13 +462,21 @@ export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): T
     if (hasUnits(state, state.players[idx].id)) { next = idx; break; }
   }
   const ownersAlive = new Set(alive(state).map((u) => u.owner));
-  if (ownersAlive.size <= 1 || (wrapped && state.turn >= state.turnLimit)) {
-    const best = Math.max(...state.players.map((p) => (ownersAlive.has(p.id) ? state.scores[p.id] : -1)));
-    const winners = state.players.filter((p) => ownersAlive.has(p.id) && state.scores[p.id] === best).map((p) => p.id);
+  const hillWon = state.scenario === 'hill' && state.scores[active] >= HILL_TARGET;
+  if (ownersAlive.size <= 1 || hillWon || (wrapped && state.turn >= state.turnLimit)) {
+    // Decisive Ground: the objectives count once, when the battle ends.
+    if (state.scenario === 'decisive') {
+      for (const hex of state.objectives) {
+        const holder = holderOf(state, hex);
+        if (holder) { state.scores[holder] += 1; events.push({ type: 'score', player: holder, points: 1, reason: 'final', hex }); }
+      }
+    }
+    const best = Math.max(...state.players.map((p) => (ownersAlive.has(p.id) ? state.scores[p.id] : -Infinity)));
+    const winners = hillWon ? [active] : state.players.filter((p) => ownersAlive.has(p.id) && state.scores[p.id] === best).map((p) => p.id);
     state.finished = true;
     state.result = {
       winners,
-      reason: ownersAlive.size <= 1 ? 'Only one army remains.' : 'Turn limit reached.',
+      reason: hillWon ? `Held the hill for ${HILL_TARGET} turns.` : ownersAlive.size <= 1 ? 'Only one army remains.' : 'Turn limit reached.',
     };
     events.push({ type: 'gameover', ...state.result });
   }
@@ -470,6 +499,8 @@ export function boardView(state: GameState, viewer: PlayerId | null): PlayerView
   return {
     map: state.map,
     objectives: state.objectives,
+    objectiveOwners: state.objectiveOwners,
+    scenario: state.scenario,
     datasheets: state.datasheets,
     units,
     scores: state.scores,

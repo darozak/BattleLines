@@ -94,6 +94,10 @@ export interface GameState {
   players: { id: PlayerId; side: number }[];
   units: Unit[];
   objectives: HexKey[];
+  /** The scenario (see SCENARIOS in setup.ts): how points are scored and how the battle is won (#37). */
+  scenario: string;
+  /** For each objective, the player whose flag it is (Capture the Flags), or null. */
+  objectiveOwners: (PlayerId | null)[];
   scores: Record<PlayerId, number>;
   finished: boolean;
   result: GameResult | null;
@@ -198,8 +202,16 @@ export interface MoraleEvent {
 export interface ScoreEvent {
   type: 'score';
   player: PlayerId;
-  hex: HexKey;
   points: number;
+  /** 'hold': an objective held; 'flag': an enemy flag held; 'kill': an enemy unit destroyed or broken;
+   * 'final': an objective held when the battle ended (Decisive Ground). */
+  reason: 'hold' | 'flag' | 'kill' | 'final';
+  /** The objective, for 'hold', 'flag' and 'final'. */
+  hex?: HexKey;
+  /** The enemy unit, for 'kill'. */
+  unit?: UnitId;
+  unitOwner?: PlayerId;
+  unitType?: string;
 }
 export interface GameOverEvent extends GameResult {
   type: 'gameover';
@@ -223,6 +235,8 @@ export type VisibleUnit =
 export interface PlayerView {
   map: GameMap;
   objectives: HexKey[];
+  objectiveOwners: (PlayerId | null)[];
+  scenario: string;
   datasheets: Record<string, Datasheet>;
   units: VisibleUnit[];
   scores: Record<PlayerId, number>;

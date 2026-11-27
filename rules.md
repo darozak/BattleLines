@@ -6,28 +6,30 @@ dice: the page shows exactly what your orders will do before you end your turn. 
 the game as it plays on the [live site](https://darozak.github.io/BattleLines/).
 
 <!-- generated:version -->
-These rules are version **13**, the same as the game's link version: a link from another version won't open.
+These rules are version **14**, the same as the game's link version: a link from another version won't open.
 <!-- /generated -->
 
 The numbers in these rules are placeholders while the game is being playtested, and will change.
 
 ## 1. Setting up
 
-1. One player opens the site and chooses the **era**, the **map size**, the **point limit** and the
-   number of players (two to four, and no more than the era has armies), and names every player.
-2. The game draws a battlefield for the era and size, places the **objectives**, and puts the players
+1. One player opens the site and chooses the **era**, the **map size**, the **point limit**, the
+   **scenario** (section 9), the number of **rounds**, the number of **objectives** where the scenario
+   lets you choose, and the number of players (two to four, and no more than the era has armies), and
+   names every player.
+2. The game draws a battlefield for the era and size, places the scenario's **objectives**, and puts the players
    in a random **turn order**. The order is the same for deployment and for every round of the battle.
 3. Each player has a **starting zone** along one edge of the map: the first player in the turn order
    the west edge, the second the east edge, the third the north edge and the fourth the south edge.
 
 <!-- generated:sizes -->
-| Map | Hexes | Rounds | Objectives | Starting zone depth |
+| Map | Hexes | Rounds (default) | Objectives (default) | Starting zone depth |
 | --- | --- | --- | --- | --- |
 | Small | 16 × 12 | 10 | 3 | 2 hexes |
 | Medium | 24 × 18 | 12 | 5 | 3 hexes |
 | Large | 40 × 30 | 12 | 5 | 3 hexes |
 
-Point limits: 100, 150, 200, 300.
+Point limits: 100, 150, 200, 300. Rounds: 6, 8, 10, 12, 15. Objectives, where the scenario lets you choose: 1, 3, 5.
 <!-- /generated -->
 
 ## 2. Deployment (turn 0)
@@ -57,7 +59,7 @@ this order:
 3. **Combat**: each of your units that you ordered to attack attacks its target, if it can reach it
    (sections 6 and 7).
 4. **Morale**: badly damaged units check their morale (section 8).
-5. **Scoring**: you score for the objectives you hold (section 9).
+5. **Scoring**: you score as the scenario says (section 9).
 
 Only the player whose turn it is moves and attacks. The other players' units stand still and don't
 strike back on your turn; they act on their own turns.
@@ -166,14 +168,32 @@ edges. Every hex also has an **elevation** (the number shown in it).
 4. All checks are made against the battlefield as it stands after the attacks, so a unit that breaks
    doesn't affect another unit's check in the same turn.
 
-## 9. Scoring and the end of the battle
+## 9. Scenarios, scoring and the end of the battle
 
-1. At the end of your turn you score **1 point for each objective** one of your units stands on with no
-   enemy next to it.
-2. A player whose units are all gone is out of the game, and loses their turns.
-3. The battle ends after the last round, or as soon as only one army is left.
-4. The player with the most points wins; if only one army is left, it wins. Players with no units left
-   can't win. A tie shares the victory.
+1. The **scenario**, chosen at setup, says how points are scored:
+
+<!-- generated:scenarios -->
+| Scenario | How to win |
+| --- | --- |
+| **Hold the Field** | Objectives in the middle of the map. At the end of your turn, score 1 for each objective you hold. |
+| **King of the Hill** | One objective at the centre. Score 1 at the end of each of your turns you hold it: the first to 5 wins at once. |
+| **Annihilation** | No objectives. Score the point value of every enemy unit you destroy, or that breaks and disbands. |
+| **Capture the Flags** | Each player has a flag in front of their starting zone. At the end of your turn, score 2 for each enemy flag you hold. |
+| **Decisive Ground** | Objectives in the middle of the map, but no running score: when the battle ends, each player scores 1 for each objective they hold. |
+<!-- /generated -->
+
+2. You **hold** an objective when one of your units stands on it with no enemy next to it.
+3. **Hold the Field** and **Decisive Ground** have one, three or five objectives in the middle of the
+   map, chosen at setup. **King of the Hill** has one, at the centre. **Capture the Flags** gives each
+   player a flag, drawn in their colour, a little in front of their starting zone; holding your own
+   flag scores nothing. **Annihilation** has none.
+4. **Annihilation**: a unit counts when it is destroyed or breaks. Units lost on your turn score for
+   you; one of your units destroyed by a free attack as it disengages scores for that enemy.
+5. A player whose units are all gone is out of the game, and loses their turns.
+6. The battle ends after the last round, or as soon as only one army is left, or, in **King of the
+   Hill**, as soon as a player reaches the target.
+7. When it ends, the player with the most points wins; if only one army is left, it wins. Players with
+   no units left can't win. A tie shares the victory.
 
 ## 10. Armies and units
 

@@ -151,12 +151,52 @@ export function startingZone(size: MapSize, side: number): HexKey[] {
   return out;
 }
 
-function objectiveHexes(size: MapSize): HexKey[] {
+// ---------------------------------------------------------------- scenarios (#37)
+
+export interface Scenario {
+  id: string;
+  name: string;
+  /** One line for the setup screen and the rules. */
+  description: string;
+  /** Where the objectives come from: chosen number in the middle, one at the centre, none, or a flag per player. */
+  objectives: 'choose' | 'centre' | 'none' | 'flags';
+}
+
+/** King of the Hill: the first player to this many points wins at once. */
+export const HILL_TARGET = 5;
+/** Capture the Flags: points for each enemy flag held at the end of your turn. */
+export const FLAG_POINTS = 2;
+
+export const SCENARIOS: Record<string, Scenario> = {
+  hold: { id: 'hold', name: 'Hold the Field', objectives: 'choose',
+    description: 'Objectives in the middle of the map. At the end of your turn, score 1 for each objective you hold.' },
+  hill: { id: 'hill', name: 'King of the Hill', objectives: 'centre',
+    description: `One objective at the centre. Score 1 at the end of each of your turns you hold it: the first to ${HILL_TARGET} wins at once.` },
+  annihilation: { id: 'annihilation', name: 'Annihilation', objectives: 'none',
+    description: 'No objectives. Score the point value of every enemy unit you destroy, or that breaks and disbands.' },
+  flags: { id: 'flags', name: 'Capture the Flags', objectives: 'flags',
+    description: `Each player has a flag in front of their starting zone. At the end of your turn, score ${FLAG_POINTS} for each enemy flag you hold.` },
+  decisive: { id: 'decisive', name: 'Decisive Ground', objectives: 'choose',
+    description: 'Objectives in the middle of the map, but no running score: when the battle ends, each player scores 1 for each objective they hold.' },
+};
+export const DEFAULT_SCENARIO = 'hold';
+export const ROUND_OPTIONS = [6, 8, 10, 12, 15];
+export const OBJECTIVE_OPTIONS = [1, 3, 5];
+
+/** Capture the Flags: each player's flag, a little in front of the middle of their starting zone. */
+export function flagHex(size: MapSize, side: number): HexKey {
+  const { cols, rows, zoneDepth: d } = size;
+  const cx = Math.floor(cols / 2);
+  const cy = Math.floor(rows / 2);
+  return side === 0 ? key(d + 1, cy) : side === 1 ? key(cols - d - 2, cy) : side === 2 ? key(cx, d + 1) : key(cx, rows - d - 2);
+}
+
+function objectiveHexes(size: MapSize, count = size.objectives): HexKey[] {
   const cx = Math.floor(size.cols / 2);
   const cy = Math.floor(size.rows / 2);
   const dx = Math.floor(size.cols / 4);
   const dy = Math.floor(size.rows / 4);
-  return [key(cx, cy), key(cx - dx, cy - dy), key(cx + dx, cy + dy), key(cx + dx, cy - dy), key(cx - dx, cy + dy)].slice(0, size.objectives);
+  return [key(cx, cy), key(cx - dx, cy - dy), key(cx + dx, cy + dy), key(cx + dx, cy - dy), key(cx - dx, cy + dy)].slice(0, count);
 }
 
 const centre = (size: MapSize) => key(Math.floor(size.cols / 2), Math.floor(size.rows / 2));
@@ -354,13 +394,23 @@ function riverNetwork(cols: number, rows: number, rng: ReturnType<typeof createR
 
 export interface SetupPlayer { id: PlayerId; side: number }
 
+/** Scenario choices made at setup; anything left out takes the scenario's and the map size's default. */
+export interface ScenarioOptions { scenario?: string; rounds?: number; objectives?: number }
+
 /** A new game at turn 0: map and objectives, no units yet; player 1 deploys first. */
-export function createSetupState(eraId: string, sizeId: string, pointLimit: number, players: SetupPlayer[], seed: number): GameState {
+export function createSetupState(eraId: string, sizeId: string, pointLimit: number, players: SetupPlayer[], seed: number, opts: ScenarioOptions = {}): GameState {
   const era = ERAS[eraId];
   const size = MAP_SIZES[sizeId];
+  const scenario = SCENARIOS[opts.scenario ?? DEFAULT_SCENARIO];
   if (!era) throw new Error(`Unknown era ${eraId}`);
   if (!size) throw new Error(`Unknown map size ${sizeId}`);
-  const objectives = objectiveHexes(size);
+  if (!scenario) throw new Error(`Unknown scenario ${opts.scenario}`);
+  const objectives =
+    scenario.objectives === 'none' ? [] :
+    scenario.objectives === 'centre' ? [centre(size)] :
+    scenario.objectives === 'flags' ? players.map((p) => flagHex(size, p.side)) :
+    objectiveHexes(size, opts.objectives ?? size.objectives);
+  const objectiveOwners = scenario.objectives === 'flags' ? players.map((p) => p.id) : objectives.map(() => null);
   const zones = players.flatMap((p) => startingZone(size, p.side));
   return {
     era: eraId,
@@ -371,12 +421,14 @@ export function createSetupState(eraId: string, sizeId: string, pointLimit: numb
     seed,
     turn: 0,
     current: 0,
-    turnLimit: size.turnLimit,
+    turnLimit: opts.rounds ?? size.turnLimit,
     map: generateMap(era, size, seed, [...objectives, ...zones]),
     datasheets: eraDatasheets(era),
     players: players.map((p) => ({ id: p.id, side: p.side })),
     units: [],
     objectives,
+    scenario: scenario.id,
+    objectiveOwners,
     scores: Object.fromEntries(players.map((p) => [p.id, 0])),
     finished: false,
     result: null,
