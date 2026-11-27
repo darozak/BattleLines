@@ -259,7 +259,7 @@ function homeScreen(): void {
     const typed = [...namesDiv.querySelectorAll('input')].map((i) => i.value);
     namesDiv.innerHTML = Array.from({ length: Number(countSel.value) }, (_, i) =>
       `<label>Player name ${i + 1}${i === 0 ? ' (you)' : ''}
-        <input name="player" required maxlength="30" value="${esc(typed[i] ?? '')}"></label>`).join('');
+        <input name="player" maxlength="30" placeholder="Player ${i + 1}" value="${esc(typed[i] ?? `Player ${i + 1}`)}"></label>`).join(''); // defaults (#48)
   };
   const fillAbout = () => {
     const era = ERAS[eraSel.value];

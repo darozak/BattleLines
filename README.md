@@ -15,7 +15,7 @@ at the top of the page, so you never need to scroll to find it. The map has the 
 round, scenario and scores are in a slim bar above it, and the **Report** button shows what has happened.
 
 1. **Set up.** Open the site and choose the era, the map size, the point limit, the scenario, the
-   number of rounds and the number of players, and name every player. The game puts the players in a random order.
+   number of rounds and the number of players, and name the players. Every choice starts with a sensible default (players are "Player 1", "Player 2"…), so you can press Create game straight away. The game puts the players in a random order.
 2. **Deploy (turn 0).** Each player in turn picks one of the era's armies (no two players can pick the
    same one), then chooses units from it and places them in their starting zone, up to the point limit,
    and passes the link on. Once they have picked an army, **Deploy army for me** draws a random set of its
