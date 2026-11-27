@@ -5,7 +5,7 @@
 //               places units; after that they give orders. Either way, finishing produces the
 //               link for the next player.
 import { mountBoard, SIDE_COLORS, SIDE_NAMES, type BoardContext, type BoardPlayer } from './board.js';
-import { esc, store } from './util.js';
+import { esc, store, openDialog } from './util.js';
 import { ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, zoneOf, SCENARIOS, ROUND_OPTIONS, OBJECTIVE_OPTIONS } from '../shared/setup.js';
 import { boardView, previewTurn, attackOptions } from '../shared/engine.js';
 import {
@@ -13,7 +13,7 @@ import {
   type Game, type GameLink, type PackedState, type TurnRecord,
 } from '../shared/game.js';
 import { LinkError } from '../shared/link.js';
-import type { GameEvent } from '../shared/types.js';
+import type { GameEvent, GameState } from '../shared/types.js';
 
 const app = document.getElementById('app')!;
 
@@ -66,6 +66,7 @@ const boardPlayers = (g: Game): BoardPlayer[] =>
 
 function page(html: string): void {
   window.onbeforeunload = null;
+  document.querySelectorAll('dialog.bl-dialog').forEach((d) => d.remove());
   app.innerHTML = `<div class="narrow">${html}</div>`;
 }
 
@@ -78,17 +79,19 @@ function shareCard(hash: string, title: string, text: string, subject: string): 
     <textarea class="linkbox" readonly rows="3">${esc(url)}</textarea>
     <div class="row">
       <button data-share="copy" data-major>Copy link</button>
-      <a class="button secondary" href="mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Email…</a>
+      <a class="button secondary" data-share="email" href="mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Email…</a>
       ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
     </div>
     <p class="small">The link <b>is</b> the game (${url.length} characters). Send all of it.</p>
   </div>`;
 }
 
-function wireShare(root: HTMLElement, hash: string, subject: string): void {
+function wireShare(root: HTMLElement, hash: string, subject: string, onShared?: () => void): void {
   const url = urlFor(hash);
   root.querySelectorAll<HTMLElement>('[data-share]').forEach((btn) => {
     btn.onclick = async () => {
+      onShared?.();
+      if (btn.dataset.share === 'email') return; // the mailto: link opens the mail app itself
       if (btn.dataset.share === 'copy') {
         try {
           await navigator.clipboard.writeText(url);
@@ -103,6 +106,38 @@ function wireShare(root: HTMLElement, hash: string, subject: string): void {
     };
   });
   root.querySelector<HTMLTextAreaElement>('.linkbox')?.addEventListener('focus', (e) => (e.target as HTMLTextAreaElement).select());
+}
+
+/**
+ * The end-turn dialog (#44): what the turn does, then the link for the next player with Copy, Email and
+ * Share. Nothing is saved or sent until a share button is used (onShared, once); then Done shows the
+ * result. Cancel or × goes back to giving orders.
+ */
+function sendDialog(title: string, summaryHtml: string, hash: string, cardTitle: string, cardText: string, subject: string,
+  onShared: () => void, onDone: () => void): void {
+  let shared = false;
+  const dlg = openDialog(title, `<div class="dlg-summary">${summaryHtml}</div>
+    ${shareCard(hash, cardTitle, cardText, subject)}
+    <div class="row dlg-buttons"><button data-done hidden>Done</button><button class="secondary" data-dialog-close>Cancel</button></div>`);
+  wireShare(dlg, hash, subject, () => {
+    if (!shared) { shared = true; onShared(); }
+    dlg.querySelector<HTMLButtonElement>('[data-done]')!.hidden = false;
+  });
+  dlg.querySelector('[data-done]')!.addEventListener('click', () => { dlg.close(); onDone(); });
+}
+
+/** Who gets the link next, and what to tell them. */
+function sendText(state: GameState, link: GameLink, events: GameEvent[]): { title: string; text: string; subject: string } {
+  const finished = state.finished;
+  const next = link.players[state.current];
+  const deploying = state.phase === 'deploy';
+  const subject = finished ? `Battle Lines: ${link.name} — the battle is over`
+    : `Battle Lines: ${link.name} — ${deploying ? 'your turn to deploy' : 'your move'}, ${next}`;
+  if (finished) return { title: 'Send the final link to everyone', text: 'The battle is over. This link shows the final position.', subject };
+  return { title: `Send this link to ${next}`, subject,
+    text: deploying ? `Your army is in place. ${next} deploys next.`
+      : state.turn === 1 && events.some((e) => e.type === 'deploy') ? `Everyone has deployed: the battle begins! ${next} moves first.`
+        : `Your turn is done. ${next} moves next.` };
 }
 
 /** Run an async form action with a busy button and an error line. */
@@ -263,13 +298,10 @@ function gameScreen(game: Game, hash: string): void {
     view: boardView(state, null),
     mode: 'review',
     reports: reportSections(link, turnsSince(link, state.current)),
-    topCard: state.phase === 'deploy'
-      ? `<div class="card share"><h3>Turn 0 · ${esc(who)} deploys</h3>
-        <p class="small">${esc(who)} picks an army from the ${esc(ERAS[state.era].name)} and places units in their starting zone, up to ${state.pointLimit} points.</p>
-        <div class="row"><button data-play data-major>Deploy ${esc(who)}'s army</button></div></div>`
-      : `<div class="card share"><h3>Round ${state.turn} · ${esc(who)}'s turn</h3>
-        <p class="small">Below is what has happened since ${esc(who)} last moved.</p>
-        <div class="row"><button data-play data-major>Play ${esc(who)}'s turn</button></div></div>`,
+    intro: state.phase === 'deploy'
+      ? { title: `Turn 0 · ${who} deploys`, play: `Deploy ${who}'s army`,
+        text: `${who} picks an army from the ${ERAS[state.era].name} and places units in their starting zone, up to ${state.pointLimit} points.` }
+      : { title: `Round ${state.turn} · ${who}'s turn`, play: `Play ${who}'s turn`, text: `What has happened since ${who} last moved:` },
     afterRender: (root) => {
       const btn = root.querySelector<HTMLButtonElement>('[data-play]');
       if (btn) btn.onclick = () => (state.phase === 'deploy' ? deployScreen(game) : playScreen(game));
@@ -307,13 +339,12 @@ function deployScreen(game: Game): void {
       taken: Object.fromEntries(state.players.filter((p) => state.armies[p.id]).map((p) => [state.armies[p.id]!, link.players[playerIndex(p.id)]])),
       zone: zoneOf(state, playerId(me)),
       pointLimit: state.pointLimit,
-      onFinish: async (d) => {
+      onFinish: async (d, summaryHtml) => {
         const ended = deploy(game, d);
         const hash = await encodeGame(ended.link);
-        store.set(stateKey(link.id, me), packState(ended.state));
-        showInAddressBar(hash);
-        remember(ended.link, hash, statusOf(ended));
-        sentScreen(ended, hash, me, ended.events);
+        const t = sendText(ended.state, ended.link, ended.events);
+        sendDialog('Finish deployment', summaryHtml, hash, t.title, t.text, t.subject,
+          () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events));
       },
     },
   });
@@ -336,30 +367,28 @@ function playScreen(game: Game): void {
     notice,
     preview: (orders) => previewTurn(state, orders),
     attackOptions: (unitId, hex, facing) => attackOptions(state, unitId, hex, facing),
-    onEndTurn: async (orders) => {
+    onEndTurn: async (orders, summaryHtml) => {
       const ended = endTurn(game, orders);
       const hash = await encodeGame(ended.link);
-      store.set(stateKey(link.id, me), packState(ended.state));
-      showInAddressBar(hash);
-      remember(ended.link, hash, statusOf(ended));
-      sentScreen(ended, hash, me, ended.events);
+      const t = sendText(ended.state, ended.link, ended.events);
+      sendDialog('End turn', summaryHtml, hash, t.title, t.text, t.subject,
+        () => commitTurn(ended, hash, me), () => sentScreen(ended, hash, me, ended.events));
     },
   });
 }
 
+/** The turn is sent (a share button was used): remember it, for the replay check and the recent-games list. */
+function commitTurn(ended: Game, hash: string, me: number): void {
+  store.set(stateKey(ended.link.id, me), packState(ended.state));
+  showInAddressBar(hash);
+  remember(ended.link, hash, statusOf(ended));
+}
+
+/** After Done: the new position, with a header button to send the link again. */
 function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): void {
   const { link, state } = game;
   const finished = state.finished;
-  const next = link.players[state.current];
-  const deploying = state.phase === 'deploy';
-  const subject = finished ? `Battle Lines: ${link.name} — the battle is over`
-    : `Battle Lines: ${link.name} — ${deploying ? 'your turn to deploy' : 'your move'}, ${next}`;
-  const card = finished
-    ? shareCard(hash, 'Send the final link to everyone', 'The battle is over. This link shows the final position.', subject)
-    : shareCard(hash, `Send this link to ${next}`,
-      deploying ? `Your army is in place. ${next} deploys next.`
-        : state.turn === 1 && events.some((e) => e.type === 'deploy') ? `Everyone has deployed: the battle begins! ${next} moves first.`
-          : `Your turn is done. ${next} moves next.`, subject);
+  const t = sendText(state, link, events);
   mountBoard(app, {
     gameName: link.name,
     round: state.turn,
@@ -370,9 +399,12 @@ function sentScreen(game: Game, hash: string, me: number, events: GameEvent[]): 
     view: boardView(state, playerId(me)),
     mode: 'review',
     reports: [{ title: events.some((e) => e.type === 'deploy') ? 'Your deployment' : 'Your turn', events }],
-    notice: { kind: 'ok', html: 'Turn complete. Send the link below to continue the game.' },
-    topCard: card,
-    afterRender: (root) => wireShare(root, hash, subject),
+    notice: { kind: 'ok', html: `Turn complete. ${esc(t.text)}` },
+    actions: [{ id: 'send-again', label: 'Send the link again' }],
+    afterRender: (root) => {
+      const btn = root.querySelector<HTMLButtonElement>('[data-action-id="send-again"]');
+      if (btn) btn.onclick = () => sendDialog('Send the link', '', hash, t.title, t.text, t.subject, () => {}, () => {});
+    },
   });
 }
 

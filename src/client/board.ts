@@ -10,7 +10,7 @@ import type {
 import type { AttackOption, TurnPreview } from '../shared/engine.js';
 import type { Army, Deployment, Placement } from '../shared/setup.js';
 import { SCENARIOS } from '../shared/setup.js';
-import { esc } from './util.js';
+import { esc, openDialog } from './util.js';
 
 type OwnUnit = Extract<VisibleUnit, { own: true }>;
 type EnemyUnit = Extract<VisibleUnit, { own: false }>;
@@ -36,19 +36,22 @@ export interface BoardContext {
   /** 'orders': giving orders. 'deploy': turn 0, picking an army and placing units. 'review': read-only. */
   mode: 'orders' | 'review' | 'deploy';
   /** Turn 0 (deploy mode): the era's armies, the player's starting zone and the point limit. */
-  deploy?: { armies: Army[]; taken: Record<string, string>; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment) => Promise<void> };
-  /** Report sections shown in the side panel and drawn on the map. */
+  deploy?: { armies: Army[]; taken: Record<string, string>; zone: HexKey[]; pointLimit: number; onFinish: (d: Deployment, summaryHtml: string) => Promise<void> };
+  /** Report sections, shown in the reports dialog and drawn on the map. */
   reports: { title: string; events: GameEvent[] }[];
   /** A notice above the board (HTML). */
   notice?: { kind: 'ok' | 'warn'; html: string };
-  /** Extra card at the top of the side panel (HTML), e.g. the "send this link" panel. */
-  topCard?: string;
-  onEndTurn?: (orders: PlayerOrders) => Promise<void>;
+  /** Opening a link (#44): a dialog with whose turn it is and the reports, with a button to start. */
+  intro?: { title: string; text: string; play: string };
+  /** Main buttons the page adds to the header (#40), each pressed through `afterRender` wiring by id. */
+  actions?: { id: string; label: string }[];
+  /** End turn (#44): the page shows the link and sharing options, with this summary of what the turn does. */
+  onEndTurn?: (orders: PlayerOrders, summaryHtml: string) => Promise<void>;
   /** Exactly what ending the turn with these orders would do (orders mode). */
   preview?: (orders: PlayerOrders) => TurnPreview;
   /** The enemies a unit could attack from a hex, each with its tally sheet. */
   attackOptions?: (unitId: UnitId, hex: HexKey, facing: Facing) => AttackOption[];
-  /** Called after each render so the page can wire up its own buttons in topCard. */
+  /** Called after each render so the page can wire up its own buttons (intro play button, actions). */
   afterRender?: (root: HTMLElement) => void;
 }
 
@@ -58,6 +61,7 @@ const ZOOMS = [0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2];
 const FOCUS_ZOOM = 1.25;         // minimum zoom when jumping to a unit
 
 export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
+  document.querySelectorAll('dialog.bl-dialog').forEach((d) => d.remove()); // a new screen closes any dialog (#44)
   let orders: Record<UnitId, Plan> = {};
   let selected: UnitId | null = null;
   /** The unit whose info box stays open after a click or tap (#34). */
@@ -292,11 +296,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   async function endTurn(): Promise<void> {
     if (!ctx.onEndTurn || busy) return;
-    busy = true;
-    render();
-    const out = toOrders();
-    dirty = false;
-    await ctx.onEndTurn(out);
+    // The page opens a dialog with the link (#44); cancelling it comes straight back here.
+    await ctx.onEndTurn(toOrders(), previewHtml());
   }
 
   // ---------------------------------------------------------------- map
@@ -590,32 +591,38 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     return notes;
   }
 
+  /** The side panel (#44): only the army and unit picker, during deployment. */
   function renderSide(): string {
-    const finished = view.finished;
+    return ctx.mode === 'deploy' ? renderDeploy() : '';
+  }
+
+  /** The slim bar above the map (#44): game, round, scenario, players and scores, and the main buttons. */
+  function renderGameBar(): string {
     const eliminated = new Set(view.eliminated);
-    const moving = myUnits().filter((u) => hasOrders(u.id)).length;
-    const attacks = pvAttacks();
-    const destroyed = (pv?.events ?? []).filter((e) => e.type === 'destroyed').length;
-    const disbanded = (pv?.events ?? []).filter((e) => e.type === 'morale' && !e.held).length;
-    const summary = `${plural(attacks.length, 'attack')}, ${plural(attacks.reduce((n, e) => n + e.hits, 0), 'hit')}${destroyed ? `, ${destroyed} destroyed` : ''}${disbanded ? `, ${disbanded} disbanded` : ''}`;
+    const sc = SCENARIOS[view.scenario];
+    const round = view.finished ? 'Final position' : ctx.round === 0 ? 'Turn 0: deployment' : `Round ${ctx.round} of ${ctx.turnLimit}`;
+    const majors = [
+      ...(ctx.intro ? [`<button data-play data-major>${esc(ctx.intro.play)}</button>`] : []),
+      ...(canOrder() ? ['<button data-action="end-turn" data-major>End turn</button>'] : []),
+      ...(ctx.actions ?? []).map((a) => `<button data-action-id="${esc(a.id)}" data-major>${esc(a.label)}</button>`),
+    ];
+    return `<b>${esc(ctx.gameName)}</b> <span class="sep">·</span> ${round}
+      ${sc ? `<span class="sep">·</span> <span class="scenario-name" title="${esc(sc.description)}">${esc(sc.name)}</span>` : ''}
+      <span class="sep">·</span> ${ctx.players.map((p) => `<span class="pl${p.id === ctx.current ? ' to-move' : ''}${eliminated.has(p.id) ? ' out' : ''}" title="${esc(p.army ?? '')}"><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''} ${view.scores[p.id] ?? 0}${p.id === ctx.current ? ' ◀' : ''}</span>`).join(' ')}
+      ${majors.join('')}`;
+  }
+
+  /** The reports (#44), in a dialog: what has happened, with the arrows on the map. */
+  function openReports(intro?: BoardContext['intro']): void {
     const reports = ctx.reports.filter((r) => r.events.length);
-    return `
-      ${ctx.topCard ?? ''}
-      <div class="card"><h3>${esc(ctx.gameName)}</h3>
-        <div>${finished ? 'Final round' : ctx.round === 0 ? 'Turn 0: deployment' : `Round ${ctx.round} of ${ctx.turnLimit}`}</div>
-        ${SCENARIOS[view.scenario] ? `<div class="small scenario"><b>${esc(SCENARIOS[view.scenario].name)}</b>: ${esc(SCENARIOS[view.scenario].description)}</div>` : ''}
-        <ul class="players">${ctx.players.map((p) => `<li><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>
-          ${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''}${p.army ? ` <span class="small">(${esc(p.army)})</span>` : ''} — ${view.scores[p.id] ?? 0} pts
-          ${eliminated.has(p.id) ? '<span class="small">eliminated</span>' : p.id === ctx.current ? '<span class="small">◀ to move</span>' : ''}</li>`).join('')}</ul>
-        ${canOrder() ? `<div class="row submitrow"><button data-action="end-turn" data-major ${busy ? 'disabled' : ''}>${busy ? 'Ending turn…' : 'End turn'}</button>
-          <span class="small">${moving} with orders, ${myUnits().length - moving} holding<br>${summary}</span></div>` : ''}
-      </div>
-      ${ctx.mode === 'deploy' ? renderDeploy() : ''}
-      ${canOrder() ? renderPreview() : ''}
-      <div class="card"><h3>Reports</h3>
-        ${reports.length ? `<label class="small"><input type="checkbox" data-action="replay" ${showReplay ? 'checked' : ''}> show on map</label>
-          ${reports.map((r, i) => `<h4>${esc(r.title)}</h4><ol class="log" data-scroll="report-${i}">${r.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`).join('')}`
-          : '<p class="small">Nothing to report.</p>'}</div>`;
+    const body = `${intro ? `<p>${esc(intro.text)}</p>` : ''}
+      ${reports.length ? reports.map((r) => `<h3>${esc(r.title)}</h3><ol class="log">${r.events.map((e) => `<li>${esc(describe(e))}</li>`).join('')}</ol>`).join('')
+        : '<p class="small">Nothing to report yet.</p>'}
+      ${reports.length ? `<label class="small"><input type="checkbox" data-replay ${showReplay ? 'checked' : ''}> show on the map</label>` : ''}
+      <div class="row dlg-buttons">${intro ? `<button data-dialog-play>${esc(intro.play)}</button>` : ''}<button class="secondary" data-dialog-close>Close</button></div>`;
+    const dlg = openDialog(intro?.title ?? 'Reports', body);
+    dlg.querySelector<HTMLInputElement>('[data-replay]')?.addEventListener('change', (ev) => { showReplay = (ev.target as HTMLInputElement).checked; renderMap(); });
+    dlg.querySelector('[data-dialog-play]')?.addEventListener('click', () => { dlg.close(); app.querySelector<HTMLButtonElement>('[data-play]')?.click(); });
   }
 
   /** Turn 0: pick an army, then choose units and place them in the starting zone. */
@@ -681,6 +688,12 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (placements.length) centerOn(placements[Math.floor(placements.length / 2)].hex, true);
   }
 
+  /** Everything ending the turn now would do, for the end-turn dialog (#44). */
+  function previewHtml(): string {
+    const moving = myUnits().filter((u) => hasOrders(u.id)).length;
+    return `<p class="small">${plural(moving, 'unit')} with orders, ${myUnits().length - moving} holding.</p>` + renderPreview();
+  }
+
   /** Everything ending the turn now would do, worked out by the rules engine. */
   function renderPreview(): string {
     const events = pv?.events ?? [];
@@ -699,7 +712,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       if (e.type === 'gameover') return `<li><b>The battle will end: ${esc(e.reason)}</b></li>`;
       return '';
     }).filter(Boolean);
-    return `<div class="card preview"><h3>If you end your turn now</h3>
+    return `<div class="preview"><h3>If you end your turn now</h3>
       ${items.length ? `<ul class="log" data-scroll="preview">${items.join('')}</ul>` : '<p class="small">No attacks and no points this turn.</p>'}
       ${halts.length ? '<p class="small">Units stop early when they come next to an enemy.</p>' : ''}
       <p class="small">There are no dice: this is exactly what will happen. Open an attack or a morale check to see its tally.</p></div>`;
@@ -719,9 +732,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   app.innerHTML = `
 <div id="banner"></div>
-<div class="game">
+<div class="gamebar" id="gamebar"></div>
+<div class="game${ctx.mode === 'deploy' ? '' : ' no-side'}">
   <div class="mapcol">
     <div class="maptools">
+      <button class="secondary small-btn" data-reports>Report</button>
       <button class="secondary small-btn" data-zoom="out" aria-label="Zoom out">−</button>
       <span id="zoomlevel" class="small"></span>
       <button class="secondary small-btn" data-zoom="in" aria-label="Zoom in">+</button>
@@ -742,6 +757,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 </div>`;
   const wrap = document.getElementById('mapwrap')!;
   const side = document.getElementById('side')!;
+  const gamebar = document.getElementById('gamebar')!;
   const infobox = document.getElementById('infobox')!;
   const frame = app.querySelector<HTMLElement>('.mapframe')!;
 
@@ -867,6 +883,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   app.querySelector('.maptools')!.addEventListener('click', (ev) => {
     const z = (ev.target as Element).closest<HTMLElement>('[data-zoom]')?.dataset.zoom;
+    if ((ev.target as Element).closest('[data-reports]')) return openReports();
     const cycle = (ev.target as Element).closest<HTMLElement>('[data-cycle]')?.dataset.cycle;
     if (cycle) {
       const mine = myUnits();
@@ -897,13 +914,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       return render();
     }
     if (action === 'finish-deploy' && army && placements.length && !busy) {
-      busy = true;
-      dirty = false;
-      render();
-      return void ctx.deploy!.onFinish({ army: army.id, units: placements });
+      // The page opens a dialog with the link (#44); cancelling it comes straight back here.
+      const pts = spent();
+      const counts = Object.entries(army.units).map(([type, u]) => [u.name, placements.filter((pl) => pl.type === type).length] as const).filter(([, n]) => n);
+      return void ctx.deploy!.onFinish({ army: army.id, units: placements },
+        `<p>You deploy the <b>${esc(army.name)}</b>: ${plural(placements.length, 'unit')}, ${pts} of ${ctx.deploy!.pointLimit} points (${counts.map(([n, k]) => `${esc(n)} ×${k}`).join(', ')}).</p>`);
     }
   };
   side.addEventListener('click', onPanelClick);
+  gamebar.addEventListener('click', onPanelClick);
   side.addEventListener('change', (ev) => {
     const input = ev.target as HTMLInputElement;
     if (input.dataset.action === 'replay') { showReplay = input.checked; renderMap(); }
@@ -922,6 +941,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     document.getElementById('banner')!.innerHTML = renderBanner();
     renderMap();
     side.innerHTML = renderSide();
+    side.hidden = !side.innerHTML;
+    gamebar.innerHTML = renderGameBar();
     side.querySelectorAll<HTMLElement>('[data-scroll]').forEach((el) => { el.scrollTop = scrolls.get(el.dataset.scroll!) ?? 0; });
     side.scrollTop = sideTop;
     if (pinned && !units().some((u) => u.id === pinned)) pinned = null;
@@ -931,6 +952,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   }
 
   render();
+  if (ctx.intro) openReports(ctx.intro); // opening a link: what has happened, and whose turn it is (#44)
   // Start centred on the player's own forces (or the middle of the map).
   const mine = myUnits();
   centerOn(mine.length ? mine[Math.floor(mine.length / 2)].hex : `${Math.floor(view.map.cols / 2)},${Math.floor(view.map.rows / 2)}`, false);

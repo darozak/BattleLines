@@ -111,6 +111,11 @@ The rules of play, with every number, are in [rules.md](rules.md), published as 
 engine (`resolvePlayerTurn` in `src/shared/engine.ts`) resolves the active player's turn in the order the
 rules give: movement, facing, combat (close combat and fire land together), morale, scoring. How it does so:
 
+- No side panels (#44), except the army and unit picker during deployment. The game, round, scenario and
+  scores are in a bar above the map; reports open in a dialog (the **Report** button, and by themselves
+  when a link is opened). **End turn** and **Finish deployment** open a dialog with the turn's preview
+  and the link: nothing is saved (replay-check state, address bar, recent games) until a share button is
+  used, so **Cancel** simply goes back to giving orders.
 - **Movement** is simulated in impulses: every moving unit takes one step per impulse, so contact and
   crowding are decided by who gets where first, not by the order of the orders. Step costs and the river
   rule come from `stepCost` and `stepProblem` in `src/shared/terrain.ts`, which the page also uses to

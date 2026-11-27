@@ -10,8 +10,9 @@ turn at a time.
 
 ## How a game works
 
-The main button for each step (Create game, Deploy, Finish deployment, End turn, Copy link) is always in
-the header at the top of the page, so you never need to scroll to find it.
+The main button for each step (Create game, Deploy, Finish deployment, End turn) is always in the header
+at the top of the page, so you never need to scroll to find it. The map has the whole screen: the game,
+round, scenario and scores are in a slim bar above it, and the **Report** button shows what has happened.
 
 1. **Set up.** Open the site and choose the era, the map size, the point limit, the scenario, the
    number of rounds and the number of players, and name every player. The game puts the players in a random order.
@@ -30,8 +31,9 @@ the header at the top of the page, so you never need to scroll to find it.
      always optional, and moving or turning the unit cancels its attack, so pick the target last.
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
 4. **End your turn.** Your units move, then attack or fire at the enemies you picked; badly damaged enemies check
-   their morale; then you score for the objectives you hold. The page gives you a link for the next player, with buttons to copy,
-   email or share it.
+   their morale; then you score for the objectives you hold. **End turn** opens a box showing exactly what
+   your turn will do and the link for the next player, with buttons to copy, email or share it. **Cancel**
+   takes you back to your orders; once you've sent the link, **Done** shows the result.
 5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,
    and plays their turn. Each link starts with whose turn it is, for example `…/#Deploy-Cara/…` or `…/#Round3-Bob/…`.
 6. **Win.** The scenario decides how points are scored: **Hold the Field**, **King of the Hill**,
