@@ -24,7 +24,7 @@ turn at a time.
    - click a highlighted hex to move it there (click another to change your mind, or its own hex to stay);
    - press on its new position and drag left or right to turn it;
    - click an enemy it can reach (marked in red) to attack or fire at it, and again to cancel. Attacks are
-     always optional.
+     always optional, and moving or turning the unit cancels its attack, so pick the target last.
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
 4. **End your turn.** Your units move, then attack or fire at the enemies you picked; badly damaged enemies check
    their morale; then you score for the objectives you hold. The page gives you a link for the next player, with buttons to copy,

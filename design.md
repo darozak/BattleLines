@@ -97,7 +97,8 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 - The map scrolls and zooms. Hovering over a unit (tapping, on a touch screen) shows an info box with its
   details and what will happen to it this turn. Orders are given on the map alone (#39): click your unit,
   then a highlighted hex to move it (planned from where it started the turn, so clicking again re-plans
-  the move), drag sideways on its new position to turn it, and click a marked enemy to attack. There are
+  the move), drag sideways on its new position to turn it, and click a marked enemy to attack (moving or
+  turning the unit clears its attack order). There are
   no unit tables or orders boxes, to keep the screen clear (#34).
 
 ## Turn Resolution

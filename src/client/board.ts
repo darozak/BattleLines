@@ -107,7 +107,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     .map(([id, o]) => [id, { path: o.path, ...(o.facing !== undefined ? { facing: o.facing } : {}), ...(o.target ? { target: o.target } : {}) }]));
   let pv: TurnPreview | null = null; // what ending the turn now would do
   const pvAttacks = (): AttackEvent[] => (pv?.events ?? []).filter((e): e is AttackEvent => e.type === 'attack');
-  const setPath = (id: UnitId, path: HexKey[]) => { orders[id] = { ...orders[id], path }; dirty = true; };
+  // Moving or turning a unit clears its attack order (#39): pick the target again from the new position.
+  const setPath = (id: UnitId, path: HexKey[]) => { orders[id] = { ...orders[id], path, target: undefined }; dirty = true; };
   const reportEvents = () => ctx.reports.flatMap((r) => r.events);
 
   /** Where a unit will end up and which way it will face, if its orders are carried out. */
@@ -786,7 +787,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (!rotating.moved && Math.abs(ev.clientX - rotating.x) > 6) rotating.moved = true;
     const facing = (((rotating.from - steps) % 6) + 6) % 6 as Facing;
     if (rotating.moved && facing !== plannedEnd(ownUnit(rotating.unit)!).facing) {
-      orders[rotating.unit] = { ...orders[rotating.unit], path: pathOf(rotating.unit), facing };
+      orders[rotating.unit] = { ...orders[rotating.unit], path: pathOf(rotating.unit), facing, target: undefined };
       dirty = true;
       render();
     }
