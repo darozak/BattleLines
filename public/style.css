@@ -67,7 +67,7 @@ button.link { background: none; color: var(--accent); padding: 0; font-weight: n
 /* Datasheet */
 .datasheet .ds-head { display: flex; align-items: center; gap: 10px; }
 .datasheet .ds-head h3 { margin: 0; }
-.datasheet .close, .orders .close { margin-left: auto; background: none; color: var(--muted); font-size: 22px; padding: 0 4px; line-height: 1; }
+.datasheet .close { margin-left: auto; background: none; color: var(--muted); font-size: 22px; padding: 0 4px; line-height: 1; }
 .counter { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
   font: bold 15px sans-serif; border: 2px solid; flex: none; }
 table.stats { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0 4px; }
@@ -115,14 +115,8 @@ a.button.secondary { background: #e7e0d0; color: var(--ink); }
 .players li .swatch { margin-right: 2px; }
 .side .share h3 { margin-top: 0; }
 
-/* Datasheet panel: floats over the map, so opening it never moves anything else (#20) */
+/* The map frame holds the info box, which floats over the map (#34) */
 .mapframe { position: relative; }
-.datasheet-dock { position: absolute; top: 10px; right: 10px; width: 300px; max-height: calc(100% - 20px); overflow: auto;
-  z-index: 5; border-radius: 6px; box-shadow: 0 4px 18px #0003; overscroll-behavior: contain; }
-.datasheet-dock .card { margin: 0; }
-@media (max-width: 960px) {
-  .datasheet-dock { position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 45vh; z-index: 20; }
-}
 .side, .tablewrap, .log { overflow-anchor: none; }
 
 /* Prescriptive combat: tally sheets and the turn preview (#21) */
@@ -204,14 +198,12 @@ table.info-stats th { font-weight: normal; color: var(--muted); font-size: 11px;
 table.info-stats td { font-weight: bold; }
 .infobox .info-turn { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 4px; }
 .infobox .info-turn div { margin: 2px 0; }
-/* Orders strip for the selected unit (#34) */
-.datasheet-dock .orders { padding: 10px 12px; }
-.orders .ds-head { display: flex; align-items: center; gap: 8px; }
-.orders-row { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0 4px; }
-.orders-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.orders-notes div { margin: 3px 0; }
-.orders-notes .warn { color: var(--err); }
 .maptools .cycle { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 @media (max-width: 960px) { .infobox { width: 240px; } }
 .hint-touch { display: none; }
 @media (hover: none) { .hint-hover { display: none; } .hint-touch { display: inline; } }
+/* Turning the selected unit by dragging on its planned position (#39) */
+svg .turn-handle { fill: transparent; stroke: none; cursor: ew-resize; touch-action: none; }
+svg .turn-hint { font: bold 9px sans-serif; fill: #3b3a2f; text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: #fffdf8; stroke-width: 3px; }
+.infobox .info-turn .warn { color: var(--err); }
+.infobox .info-turn .how { color: var(--muted); font-size: 12px; }

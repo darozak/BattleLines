@@ -99,8 +99,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const canOrder = () => ctx.mode === 'orders' && myUnits().length > 0;
   const ownUnit = (id: UnitId | null) => (id ? myUnits().find((u) => u.id === id) : undefined);
   const dsName = (type: string) => view.datasheets[type]?.name ?? type;
-  /** Movement used by a path from `start` (roads, rivers and bridges change each step's cost). */
-  const pathCost = (start: HexKey, path: HexKey[]) => path.reduce((s, h, i) => s + stepCost(view.map, i ? path[i - 1] : start, h), 0);
   const pathOf = (id: UnitId): HexKey[] => orders[id]?.path ?? [];
   const hasOrders = (id: UnitId) => pathOf(id).length > 0 || orders[id]?.facing !== undefined || orders[id]?.target !== undefined;
   /** The orders as the rules engine takes them. */
@@ -148,9 +146,9 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
    * friendly unit's hex without stopping there).
    */
   function reachable(unit: OwnUnit): { routes: Map<HexKey, { cost: number; prev: HexKey }>; stops: Set<HexKey> } {
-    const path = pathOf(unit.id);
-    const start = path.length ? path[path.length - 1] : unit.hex;
-    const budget = unit.move - pathCost(unit.hex, path);
+    // From where the unit started the turn, with its whole move (#39): clicking a hex re-plans the move.
+    const start = unit.hex;
+    const budget = unit.move;
     const { cols, rows } = view.map;
     // Enemies block the way. Friendly units can be passed through, but a move can't end on one
     // that is staying put, or where another friendly unit plans to end its move (#23). A friendly
@@ -168,13 +166,13 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     while (queue.length) {
       queue.sort((a, b) => best.get(a)!.cost - best.get(b)!.cost);
       const h = queue.shift()!;
-      if (engaged.has(h) && (h !== start || path.length)) continue;
+      if (engaged.has(h) && h !== start) continue;
       for (const n of neighbors(h, cols, rows)) {
         const t = terrainAt(n);
         if (t.impassable || blocked.has(n)) continue;
         if (Math.abs(elevationAt(n) - elevationAt(h)) > unit.climb) continue; // too steep for this unit
         // The first step of a move is always allowed; later steps need the movement, and can't ford a river.
-        const first = h === start && !path.length;
+        const first = h === start;
         if (!first && fordsRiver(view.map, h, n)) continue;
         const c = best.get(h)!.cost + stepCost(view.map, h, n);
         if (!first && c > budget) continue;
@@ -191,16 +189,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   function onHexClick(hex: HexKey): void {
     const unit = ownUnit(selected);
     if (unit && canOrder()) {
-      const path = pathOf(unit.id);
-      if (path.length && hex === path[path.length - 1]) { // click the end of the path to step back
-        setPath(unit.id, path.slice(0, -1));
-        return render();
-      }
+      // (#39) Click a highlighted hex to move there by the cheapest route; its starting hex to stay put;
+      // its planned position does nothing (press and drag there to turn it).
+      if (hex === unit.hex && pathOf(unit.id).length) { setPath(unit.id, []); return render(); }
+      if (hex === plannedEnd(unit).hex) return;
       const { routes, stops } = reachable(unit);
       if (stops.has(hex)) {
         const steps: HexKey[] = [];
         for (let h = hex; routes.has(h); h = routes.get(h)!.prev) steps.unshift(h);
-        setPath(unit.id, [...path, ...steps]);
+        setPath(unit.id, steps);
         return render();
       }
     }
@@ -269,17 +266,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const wrap = document.getElementById('mapwrap');
     if (!wrap) return;
     const p = px(hex);
-    // Centre the hex in the part of the map the datasheet panel doesn't cover.
-    let viewW = wrap.clientWidth;
-    let viewH = wrap.clientHeight;
-    const dock = document.getElementById('datasheet');
-    if (dock && !dock.hidden) {
-      if (getComputedStyle(dock).position === 'absolute') viewW = Math.max(viewW / 3, viewW - dock.offsetWidth - 20);
-      else {
-        const overlap = wrap.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
-        if (overlap > 0) viewH = Math.max(viewH / 3, viewH - overlap);
-      }
-    }
+    const viewW = wrap.clientWidth;
+    const viewH = wrap.clientHeight;
     wrap.scrollTo({ left: p.x * zoom - viewW / 2, top: p.y * zoom - viewH / 2, behavior: smooth ? 'smooth' : 'auto' });
   }
 
@@ -427,6 +415,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         + `<circle cx="${p.x + SIZE * 0.5}" cy="${p.y - SIZE * 0.45}" r="7" fill="#fffdf8" stroke="${colorOf(u.owner)}"/>`
         + `<text class="str" x="${p.x + SIZE * 0.5}" y="${p.y - SIZE * 0.45}">${u.strength}</text></g>`);
     }
+    // The selected unit's planned position is a handle (#39): press and drag left or right to turn it.
+    const handleUnit = ownUnit(selected);
+    if (handleUnit && canOrder()) {
+      const h = plannedEnd(handleUnit).hex;
+      const p = px(h);
+      out.push(`<polygon class="turn-handle" data-hex="${h}" points="${hexPoints(p.x, p.y)}"><title>Drag left or right to turn</title></polygon>`
+        + `<text class="turn-hint" x="${p.x}" y="${p.y + SIZE * 1.05}">⟲ drag ⟳</text>`);
+    }
     out.push('</svg>');
     wrap.innerHTML = out.join('');
     document.getElementById('zoomlevel')!.textContent = `${Math.round(zoom * 100)}%`;
@@ -485,8 +481,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (path.length) return `to ${label(end.hex)}${turn}`;
     return orders[u.id]?.facing !== undefined && end.facing !== u.facing ? `turn ${FACING_ARROWS[end.facing]}` : 'hold';
   }
-  /** Movement points, with halves from roads: 1½. */
-  const mpText = (n: number) => (Number.isInteger(n) ? `${n}` : `${Math.floor(n) || ''}½`);
   const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
   /** A combat tally sheet: every modifier on each side, the totals, and the result. */
@@ -557,6 +551,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       }
       const on = outcomeOn(unit.id);
       if (on) turn.push(on);
+      if (unit.own && unit.id === selected && canOrder()) turn.push(...orderNotes(unit));
     } else if (ctx.mode === 'deploy' && unit.own) turn.push(`${ds.points} points${unit.id.startsWith('new') ? ' · click it to take it off the map' : ''}`);
     return `<div class="info-head"><span class="counter mini" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
         <div><b>${esc(title)}</b><div class="small">${esc(ds.name)}${unit.own ? '' : ` · ${esc(player(unit.owner)?.name ?? '')}`}</div></div></div>
@@ -567,48 +562,22 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       ${turn.length ? `<div class="info-turn">${turn.map((x) => `<div>${x}</div>`).join('')}</div>` : ''}`;
   }
 
-  /** The orders strip for the selected unit: move, facing and attack controls (#34). */
-  function renderOrders(): string {
-    const own = ownUnit(selected);
-    if (!own || !canOrder()) return '';
+  /** Notes for the selected unit's info box (#39): its planned attack, warnings, and how to give orders. */
+  function orderNotes(own: OwnUnit): string[] {
     const ds = view.datasheets[own.type];
-    const color = colorOf(own.owner);
-    const path = pathOf(own.id);
-    const used = pathCost(own.hex, path);
-    const end = plannedEnd(own);
     const endHex = pv?.endHex[own.id] ?? own.hex;
-    // Compass laid out like the hexsides: NW NE / W E / SW SE.
-    const compass = ([2, 1, 3, 0, 4, 5] as Facing[]).map((f) => `<button class="face${end.facing === f ? ' on' : ''}${own.facing === f ? ' current' : ''}"
-        data-action="face" data-facing="${f}" title="Face ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</button>`).join('');
     const opts = targetOptions(own);
-    const made = pvAttacks().find((e) => e.attacker === own.id && !e.free);
     const ordered = orders[own.id]?.target;
     const lost = ordered && !opts.some((o) => o.target.id === ordered) ? units().find((u) => u.id === ordered) : undefined;
     // An adjacent enemy facing the unit stops it firing (#32).
     const pinners = ds.range ? others().filter((e) => neighbors(endHex).includes(e.hex) && arcOf(e.hex, e.facing, endHex) === 'front') : [];
     const freeOn = pvAttacks().filter((e) => e.free && e.target === own.id);
     const notes: string[] = [];
-    if (freeOn.length) notes.push(`<span class="warn">Leaving ${label(own.hex)} draws a free attack from ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}: ${plural(freeOn.reduce((n, e) => n + e.hits, 0), 'hit')}.</span>`);
+    if (freeOn.length) notes.push(`<span class="warn">Leaving ${label(own.hex)} draws a free attack from ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}.</span>`);
     if (lost) notes.push(`<span class="warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from ${label(endHex)}: no attack.</span>`);
-    if (made) notes.push(`${made.ranged ? 'Fires at' : 'Attacks'} <b>${esc(unitDesc(made.target, made.targetOwner, made.targetType))}</b>: ${made.attack} vs ${made.defence} → <b>${plural(made.hits, 'hit')}</b>.`);
-    else if (opts.length) notes.push(`Attacking is optional: click an enemy marked in red to ${opts.some((o) => o.ranged) ? 'attack or fire at it' : 'attack it'}.`);
-    else notes.push('No enemy in reach from where it stops.');
-    if (pinners.length) notes.push(`It can't fire: ${pinners.map((e) => `${esc(sideOf(e.owner))} ${esc(e.name)}`).join(' and ')} ${pinners.length > 1 ? 'face' : 'faces'} it.`);
-    return `<div class="card orders" style="border-top:4px solid ${color}">
-      <div class="ds-head"><span class="counter mini" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
-        <div><b>${esc(own.name)}</b><div class="small">${path.length ? `to ${label(path[path.length - 1])} · ` : 'holding · '}movement ${mpText(used)} of ${own.move}</div></div>
-        <button class="close" data-action="close" aria-label="Close">×</button></div>
-      <div class="orders-row">
-        <div class="compass" title="Facing at the end of the turn">${compass}</div>
-        <div class="orders-buttons">
-          <button class="secondary small-btn" data-action="undo" ${path.length ? '' : 'disabled'}>Undo step</button>
-          <button class="secondary small-btn" data-action="hold" ${path.length ? '' : 'disabled'}>Hold</button>
-          ${ordered ? '<button class="secondary small-btn" data-action="target-none">Don\'t attack</button>' : ''}
-          ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing</button>'}
-        </div>
-      </div>
-      <div class="small orders-notes">${notes.map((n) => `<div>${n}</div>`).join('')}</div>
-    </div>`;
+    if (pinners.length) notes.push(`Can't fire: ${pinners.map((e) => `${esc(sideOf(e.owner))} ${esc(e.name)}`).join(' and ')} ${pinners.length > 1 ? 'face' : 'faces'} it.`);
+    notes.push(`<span class="how">Click a highlighted hex to move${pathOf(own.id).length ? ` (or ${label(own.hex)} to stay)` : ''} · drag sideways on it to turn${opts.length ? ' · click a red-marked enemy to attack (again to cancel)' : ''}</span>`);
+    return notes;
   }
 
   function renderSide(): string {
@@ -748,12 +717,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <button class="secondary small-btn" data-zoom="in" aria-label="Zoom in">+</button>
       <button class="secondary small-btn" data-zoom="fit">Fit map</button>
       <span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>
-      <span class="small hint-inline hint-hover">Hover over a unit for its details · click yours to give orders · drag to pan</span>
-      <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours to give orders</span>
+      <span class="small hint-inline hint-hover">Hover over a unit for its details · click yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
+      <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
     </div>
     <div class="mapframe">
       <div class="mapwrap" id="mapwrap"></div>
-      <div class="datasheet-dock" id="datasheet" hidden></div>
       <div class="infobox" id="infobox" hidden></div>
     </div>
     <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
@@ -764,7 +732,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 </div>`;
   const wrap = document.getElementById('mapwrap')!;
   const side = document.getElementById('side')!;
-  const dock = document.getElementById('datasheet')!;
   const infobox = document.getElementById('infobox')!;
   const frame = app.querySelector<HTMLElement>('.mapframe')!;
 
@@ -774,9 +741,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   function showInfo(): void {
     const id = hovered ?? pinned;
     const unit = id ? units().find((u) => u.id === id) : undefined;
-    // On a narrow screen the orders strip already covers the selected unit: no second box for it.
-    const narrow = window.matchMedia('(max-width: 960px)').matches;
-    if (!unit || (!hovered && narrow && unit.id === selected && dock.innerHTML)) { infobox.hidden = true; return; }
+    if (!unit) { infobox.hidden = true; return; }
     infobox.innerHTML = infoHtml(unit);
     infobox.hidden = false;
     const f = frame.getBoundingClientRect();
@@ -800,14 +765,49 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   });
   wrap.addEventListener('mouseleave', () => { hovered = null; showInfo(); });
 
+  // Turning (#39): press on the selected unit's planned position and drag left or right; every
+  // ROTATE_STEP pixels turns it one hexside (right = clockwise). Works with a mouse or a finger.
+  const ROTATE_STEP = 28;
+  let rotating: { x: number; from: Facing; unit: UnitId; moved: boolean } | null = null;
+  let swallowClick = false;
+  wrap.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    const sel = ownUnit(selected);
+    const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
+    if (sel && canOrder() && hex && hex === plannedEnd(sel).hex) {
+      rotating = { x: ev.clientX, from: plannedEnd(sel).facing, unit: sel.id, moved: false };
+      try { wrap.setPointerCapture(ev.pointerId); } catch { /* a pointer the browser no longer tracks */ }
+      ev.preventDefault();
+    }
+  });
+  wrap.addEventListener('pointermove', (ev) => {
+    if (!rotating) return;
+    const steps = Math.round((ev.clientX - rotating.x) / ROTATE_STEP);
+    if (!rotating.moved && Math.abs(ev.clientX - rotating.x) > 6) rotating.moved = true;
+    const facing = (((rotating.from - steps) % 6) + 6) % 6 as Facing;
+    if (rotating.moved && facing !== plannedEnd(ownUnit(rotating.unit)!).facing) {
+      orders[rotating.unit] = { ...orders[rotating.unit], path: pathOf(rotating.unit), facing };
+      dirty = true;
+      render();
+    }
+  });
+  // On touch screens, a touch that starts on the handle must not scroll the map (SVG elements don't
+  // reliably honour touch-action), so stop the browser's own handling of it.
+  wrap.addEventListener('touchstart', (ev) => {
+    if ((ev.target as Element).closest('.turn-handle')) ev.preventDefault();
+  }, { passive: false });
+  const endRotate = () => { if (rotating?.moved) swallowClick = true; rotating = null; };
+  wrap.addEventListener('pointerup', endRotate);
+  wrap.addEventListener('pointercancel', endRotate);
+
   // Click on the map (ignoring the end of a mouse drag; touch screens scroll natively).
   let drag: { x: number; y: number; left: number; top: number; moved: boolean } | null = null;
   wrap.addEventListener('pointerdown', (ev) => {
-    if (ev.pointerType !== 'mouse' || ev.button !== 0) return;
+    if (ev.pointerType !== 'mouse' || ev.button !== 0 || rotating) return;
     drag = { x: ev.clientX, y: ev.clientY, left: wrap.scrollLeft, top: wrap.scrollTop, moved: false };
   });
   wrap.addEventListener('pointermove', (ev) => {
-    if (!drag) return;
+    if (!drag || rotating) return;
     const dx = ev.clientX - drag.x;
     const dy = ev.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) > 6) { drag.moved = true; wrap.classList.add('dragging'); }
@@ -817,6 +817,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   wrap.addEventListener('pointerup', endDrag);
   wrap.addEventListener('pointerleave', endDrag);
   wrap.addEventListener('click', (ev) => {
+    if (swallowClick) { swallowClick = false; return; }
     if (drag?.moved) return;
     const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
     if (hex) onHexClick(hex);
@@ -859,33 +860,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       render();
       return void ctx.deploy!.onFinish({ army: army.id, units: placements });
     }
-    if (action === 'close') { selected = null; pinned = null; return render(); }
-    if (action === 'center' && selected) return focusUnit(selected);
-    if (action === 'undo' && selected) { setPath(selected, pathOf(selected).slice(0, -1)); return render(); }
-    if (action === 'hold' && selected) { setPath(selected, []); return render(); }
-    if (action === 'face' && selected) {
-      const f = Number(target.closest<HTMLElement>('[data-facing]')!.dataset.facing) as Facing;
-      orders[selected] = { ...orders[selected], path: pathOf(selected), facing: f };
-      dirty = true;
-      return render();
-    }
-    if (action === 'face-auto' && selected) { orders[selected] = { ...orders[selected], path: pathOf(selected), facing: undefined }; dirty = true; return render(); }
-    if (action === 'target' && selected) {
-      const id = target.closest<HTMLElement>('[data-target]')!.dataset.target!;
-      setTarget(selected, orders[selected]?.target === id ? null : id); // click again to cancel
-      return render();
-    }
-    if (action === 'target-none' && selected) { setTarget(selected, null); return render(); }
   };
   side.addEventListener('click', onPanelClick);
-  dock.addEventListener('click', onPanelClick);
   side.addEventListener('change', (ev) => {
     const input = ev.target as HTMLInputElement;
     if (input.dataset.action === 'replay') { showReplay = input.checked; renderMap(); }
   });
   window.onbeforeunload = (e) => { if (dirty) e.preventDefault(); };
 
-  let dockUnit: UnitId | null = null;
 
   function render(): void {
     // Nothing here may move the page: remember every scroll position and put it back.
@@ -893,7 +875,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const winY = window.scrollY;
     const sideTop = side.scrollTop;
     const scrolls = new Map([...side.querySelectorAll<HTMLElement>('[data-scroll]')].map((el) => [el.dataset.scroll!, el.scrollTop]));
-    const dockTop = dock.scrollTop;
 
     pv = ctx.mode === 'orders' && ctx.preview ? ctx.preview(toOrders()) : null;
     document.getElementById('banner')!.innerHTML = renderBanner();
@@ -901,11 +882,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     side.innerHTML = renderSide();
     side.querySelectorAll<HTMLElement>('[data-scroll]').forEach((el) => { el.scrollTop = scrolls.get(el.dataset.scroll!) ?? 0; });
     side.scrollTop = sideTop;
-    const sheet = renderOrders();
-    dock.innerHTML = sheet;
-    dock.hidden = !sheet;
-    dock.scrollTop = selected === dockUnit ? dockTop : 0;
-    dockUnit = selected;
     if (pinned && !units().some((u) => u.id === pinned)) pinned = null;
     showInfo();
     if (window.scrollX !== winX || window.scrollY !== winY) window.scrollTo(winX, winY);

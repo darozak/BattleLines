@@ -95,8 +95,10 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   Hills sit one level above the ground around them. The map shades lower ground darker, writes each hex's
   height at its top, and draws edges with a drop of 2 or more as cliffs.
 - The map scrolls and zooms. Hovering over a unit (tapping, on a touch screen) shows an info box with its
-  details and what will happen to it this turn; clicking one of your units opens a small orders strip for
-  its facing and attack. There are no unit tables, to keep the screen clear (#34).
+  details and what will happen to it this turn. Orders are given on the map alone (#39): click your unit,
+  then a highlighted hex to move it (planned from where it started the turn, so clicking again re-plans
+  the move), drag sideways on its new position to turn it, and click a marked enemy to attack. There are
+  no unit tables or orders boxes, to keep the screen clear (#34).
 
 ## Turn Resolution
 The rules of play, with every number, are in [rules.md](rules.md), published as the
