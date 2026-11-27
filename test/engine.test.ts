@@ -38,6 +38,9 @@ function openState(players = 2): GameState {
 const unit = (id: string, owner: string, type: string, hex: HexKey, extra: Partial<Unit> = {}): Unit =>
   ({ id, owner, type, name: id.toUpperCase(), hex, facing: 0, strength: { infantry: 4, scout: 2, heavy: 6, rifle: 3 }[type]!, ...extra });
 
+/** Orders for unit `a` to attack unit `b`, staying put. */
+const hit = (a: string, b: string): PlayerOrders => ({ [a]: { path: [], target: b } });
+
 /** Resolve a turn for a given player (whatever the state says). */
 function play(s: GameState, player: number, orders: PlayerOrders) {
   return resolvePlayerTurn({ ...s, current: player }, orders);
@@ -141,7 +144,9 @@ test('movement halts on contact with a new enemy', () => {
 test('only the active player attacks', () => {
   const s = openState();
   s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'heavy', '6,5')];
-  const { events } = play(s, 0, {});
+  assert.equal(play(s, 0, {}).events.some((e) => e.type === 'attack'), false, 'attacks are optional: no orders, no attack');
+  assert.equal(play(s, 0, hit('b', 'a')).events.some((e) => e.type === 'attack'), false, 'only your own units take orders');
+  const { events } = play(s, 0, hit('a', 'b'));
   const attacks = events.filter((e): e is AttackEvent => e.type === 'attack');
   assert.equal(attacks.length, 1);
   assert.equal(attacks[0].attacker, 'a');
@@ -226,16 +231,16 @@ test('facing: moving units face their last step unless ordered otherwise', () =>
 test('combat: no dice, hits = attack - defence, every modifier on the tally', () => {
   const s = openState();
   s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'scout', '6,5')]; // a is directly behind b
-  const onB = play(s, 0, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
+  const onB = play(s, 0, hit('a', 'b')).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(onB.arc, 'rear');
   assert.deepEqual(onB.tally.map((l) => [l.side, l.label, l.value]), [
     ['attack', 'A strength', 6], ['attack', 'rear attack', 2], ['defence', 'base defence', BASE_DEFENCE]]);
   assert.equal(onB.attack, 8);
   assert.equal(onB.defence, 3);
   assert.equal(onB.hits, 5);
-  assert.equal(play(s, 0, {}).state.units.find((u) => u.id === 'b')!.strength, 0, 'scout destroyed');
+  assert.equal(play(s, 0, hit('a', 'b')).state.units.find((u) => u.id === 'b')!.strength, 0, 'scout destroyed');
   // From b's side: a front attack on the heavy, in the open. 2 - 3 is below 0: no hits.
-  const onA = play(s, 1, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
+  const onA = play(s, 1, hit('b', 'a')).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(onA.arc, 'front');
   assert.equal(onA.hits, 0);
   // Cover adds to defence.
@@ -252,14 +257,15 @@ test('ranged attacks: fire at an enemy in range, in the front arc and in sight',
   const s = openState();
   const shooter = unit('a', 'p0', 'rifle', '4,5', { facing: facingToward('4,5', '7,5') });
   s.units = [shooter, unit('b', 'p1', 'infantry', '7,5')];
-  const shot = play(s, 0, {}).events.find((e): e is AttackEvent => e.type === 'attack')!;
+  const shot = play(s, 0, hit('a', 'b')).events.find((e): e is AttackEvent => e.type === 'attack')!;
   assert.equal(shot.ranged, true);
   assert.deepEqual(shot.tally.filter((l) => l.side === 'attack').slice(0, 2).map((l) => [l.label, l.value]), [['A fire', 4], ['range (3 hexes)', -1]]);
   assert.equal(shot.attack, 4 - 1 + ARC_BONUS[shot.arc]);
   assert.deepEqual(shot.tally.filter((l) => l.side === 'defence').map((l) => [l.label, l.value]), [['base defence against fire', FIRE_DEFENCE]]);
   assert.equal(shot.hits, Math.max(0, shot.attack - shot.defence));
   // Out of range, behind the shooter, or out of sight: no shot.
-  const noShot = (st: GameState) => !play(st, 0, {}).events.some((e) => e.type === 'attack');
+  assert.equal(play(s, 0, {}).events.some((e) => e.type === 'attack'), false, 'no order, no shot');
+  const noShot = (st: GameState) => !play(st, 0, hit('a', 'b')).events.some((e) => e.type === 'attack');
   assert.ok(noShot({ ...s, units: [shooter, unit('b', 'p1', 'infantry', '9,5')] }), 'five hexes: out of range');
   assert.ok(noShot({ ...s, units: [{ ...shooter, facing: facingToward('4,5', '1,5') }, unit('b', 'p1', 'infantry', '7,5')] }), 'behind');
   const blocked = structuredClone(s);
@@ -271,16 +277,17 @@ test('ranged attacks: fire at an enemy in range, in the front arc and in sight',
   assert.ok(noShot({ ...s, units: [{ ...shooter, type: 'infantry' }, unit('b', 'p1', 'infantry', '6,5')] }));
 });
 
-test('ranged attacks: an enemy next to the unit means close combat; otherwise the ordered or nearest target', () => {
+test('ranged attacks: the player picks the target; an enemy next to the unit means close combat', () => {
   const s = openState();
   const shooter = unit('a', 'p0', 'rifle', '4,5', { facing: facingToward('4,5', '7,5') });
   s.units = [shooter, unit('near', 'p1', 'infantry', '6,5'), unit('far', 'p1', 'scout', '8,5')];
   const atk = (orders: PlayerOrders) => play(s, 0, orders).events.find((e): e is AttackEvent => e.type === 'attack')!;
-  assert.equal(atk({}).target, 'near', 'nearest first');
+  assert.equal(atk({ a: { path: [], target: 'near' } }).target, 'near');
   assert.equal(atk({ a: { path: [], target: 'far' } }).target, 'far', 'the ordered target');
-  assert.equal(attackOptions(s, 'a', '4,5').length, 2);
+  assert.deepEqual(attackOptions(s, 'a', '4,5').map((o) => o.target.id), ['near', 'far'], 'options nearest first');
   s.units.push(unit('adj', 'p1', 'infantry', '5,5'));
-  const close = atk({ a: { path: [], target: 'far' } });
+  assert.equal(play(s, 0, { a: { path: [], target: 'far' } }).events.some((e) => e.type === 'attack'), false, "can't fire past an enemy next to it");
+  const close = atk({ a: { path: [], target: 'adj' } });
   assert.deepEqual([close.target, close.ranged, close.tally[0].label], ['adj', false, 'A strength']);
 });
 
@@ -322,30 +329,33 @@ test('morale: badly damaged units check after the attacks, and disband if they f
   const s = openState();
   s.map.terrain[5 * 16 + 6] = 'dense_forest'; // the heavy's rear attack: 8 against 5, 3 hits
   s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('b', 'p1', 'infantry', '6,5')];
-  const r = play(s, 0, {});
+  const r = play(s, 0, hit('a', 'b'));
   const m = r.events.find((e): e is MoraleEvent => e.type === 'morale')!;
   assert.deepEqual([m.unit, m.morale, m.losses, m.held], ['b', 3, 3, false]);
   assert.equal(r.state.units.find((u) => u.id === 'b')!.strength, 0, 'b disbands');
   // The preview shows the same check before the turn ends.
-  assert.deepEqual(previewTurn(s, {}).events.filter((e) => e.type === 'morale'), [m]);
+  assert.deepEqual(previewTurn(s, hit('a', 'b')).events.filter((e) => e.type === 'morale'), [m]);
   // A rallying heavy next to b keeps it in the fight.
   s.units.push(unit('d', 'p1', 'heavy', '7,5'));
-  const r2 = play(s, 0, {});
+  const r2 = play(s, 0, hit('a', 'b'));
   const m2 = r2.events.find((e): e is MoraleEvent => e.type === 'morale')!;
   assert.deepEqual([m2.morale, m2.held], [4, true]);
   assert.equal(r2.state.units.find((u) => u.id === 'b')!.strength, 1);
   // A unit still above half strength does not check: an infantry attack does 1 hit (6 against 5).
   s.units[0].type = 'infantry'; s.units[0].strength = 4;
-  assert.equal(play(s, 0, {}).events.some((e) => e.type === 'morale'), false);
+  assert.equal(play(s, 0, hit('a', 'b')).events.some((e) => e.type === 'morale'), false);
 });
 
-test('combat: an ordered target is attacked; otherwise the weakest adjacent enemy', () => {
+test('combat: only the ordered target is attacked, and only if it is in reach', () => {
   const s = openState();
   s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('weak', 'p1', 'scout', '6,5'), unit('strong', 'p1', 'infantry', '4,5')];
   const target = (orders: PlayerOrders) => play(s, 0, orders).events.find((e): e is AttackEvent => e.type === 'attack')!.target;
-  assert.equal(target({}), 'weak');
+  const attacks = (orders: PlayerOrders) => play(s, 0, orders).events.filter((e) => e.type === 'attack').length;
+  assert.equal(attacks({}), 0, 'no order, no attack');
+  assert.equal(target({ a: { path: [], target: 'weak' } }), 'weak');
   assert.equal(target({ a: { path: [], target: 'strong' } }), 'strong');
-  assert.equal(target({ a: { path: [], target: 'nobody' } }), 'weak', 'invalid targets are dropped by validation');
+  assert.equal(attacks({ a: { path: [], target: 'nobody' } }), 0, 'invalid targets are dropped by validation');
+  assert.equal(attacks({ a: { path: ['5,6', '5,7'], target: 'strong' } }), 0, 'moved out of reach: no attack');
   assert.equal(validateOrders(s, 'p0', { a: { path: [], target: 'a' } }).ok, false, 'cannot target your own unit');
 });
 

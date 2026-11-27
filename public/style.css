@@ -196,3 +196,7 @@ main.rules nav.contents { background: var(--bg); border-radius: 6px; padding: 4p
 main.rules nav.contents h2 { margin: 8px 0; border: none; font-size: 18px; }
 main.rules nav.contents ul { margin: 0; padding-left: 18px; columns: 2; }
 @media (max-width: 600px) { main.rules { margin: 0; padding: 4px 16px 20px; border: none; border-radius: 0; } main.rules nav.contents ul { columns: 1; } }
+/* Enemies the selected unit can attack or fire at (#31); solid when ordered */
+svg .target-mark { fill: none; stroke: #b3261e; stroke-width: 2.5; stroke-dasharray: 5 4; pointer-events: none; }
+svg .target-mark.on { stroke-width: 4; stroke-dasharray: none; }
+.small.warn { color: var(--err); }

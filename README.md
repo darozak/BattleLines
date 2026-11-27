@@ -18,9 +18,10 @@ turn at a time.
    players can see where earlier players deployed. The battle begins once everyone has deployed.
 3. **Give orders.** Click one of your units, in the unit table or on the map, to open its datasheet.
    Click highlighted hexes to plot its move, choose which way it should face when it stops, and, if
-   more than one enemy will be in reach, which one to attack.
+   you want it to attack, click an enemy it can reach (marked in red) to attack or fire at it. Attacks
+   are always optional.
    As you plan, the page shows exactly what your orders will do: every attack, with its tally sheet.
-4. **End your turn.** Your units move, then attack any enemy next to them or fire at one in range; badly damaged enemies check
+4. **End your turn.** Your units move, then attack or fire at the enemies you picked; badly damaged enemies check
    their morale; then you score for the objectives you hold. The page gives you a link for the next player, with buttons to copy,
    email or share it.
 5. **Pass it on.** The next player opens the link, sees a report of every turn since they last moved,

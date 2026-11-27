@@ -129,11 +129,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   const px = (hex: HexKey) => { const p = toPixel(hex, SIZE); return { x: p.x + MARGIN + SIZE, y: p.y + MARGIN + SIZE }; };
   const polyline = (hexes: HexKey[]) => hexes.map((h) => { const p = px(h); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(' ');
 
-  function hexPoints(cx: number, cy: number): string {
+  function hexPoints(cx: number, cy: number, r = SIZE): string {
     const pts: string[] = [];
     for (let i = 0; i < 6; i++) {
       const a = (Math.PI / 180) * (60 * i - 30);
-      pts.push(`${(cx + SIZE * Math.cos(a)).toFixed(1)},${(cy + SIZE * Math.sin(a)).toFixed(1)}`);
+      pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
     }
     return pts.join(' ');
   }
@@ -206,6 +206,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       }
     }
     const here = units().find((u) => u.hex === hex);
+    if (unit && canOrder() && here && !here.own && targetOptions(unit).some((o) => o.target.id === here.id)) {
+      setTarget(unit.id, orders[unit.id]?.target === here.id ? null : here.id); // click again to cancel
+      return render();
+    }
     selected = here && here.id !== selected ? here.id : null;
     render();
     if (selected) revealRow(selected);
@@ -366,6 +370,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const sel = ownUnit(selected);
     if (sel && canOrder()) {
       for (const hex of reachable(sel).stops) { const p = px(hex); out.push(`<polygon class="reach" points="${hexPoints(p.x, p.y)}"/>`); }
+      for (const o of targetOptions(sel)) {
+        const p = px(o.target.hex);
+        out.push(`<polygon class="target-mark${orders[sel.id]?.target === o.target.id ? ' on' : ''}" points="${hexPoints(p.x, p.y, SIZE * 0.86)}"/>`);
+      }
     }
     if (showReplay) {
       for (const e of reportEvents()) {
@@ -479,6 +487,18 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     </table>`;
   }
 
+  /** The enemies one of your units could attack or fire at from where it will stop, facing its end facing. */
+  function targetOptions(u: OwnUnit): AttackOption[] {
+    const hex = pv?.endHex[u.id] ?? plannedEnd(u).hex;
+    const facing = pv?.endFacing[u.id] ?? plannedEnd(u).facing;
+    return ctx.attackOptions?.(u.id, hex, facing) ?? [];
+  }
+  /** Order a unit to attack an enemy, or (null) not to attack. Attacks are optional (#31). */
+  function setTarget(unitId: UnitId, enemyId: UnitId | null): void {
+    orders[unitId] = { ...orders[unitId], path: pathOf(unitId), target: enemyId ?? undefined };
+    dirty = true;
+  }
+
   /** A morale tally sheet: the unit's morale and every modifier, against its losses. */
   function moraleHtml(m: MoraleEvent): string {
     return `<table class="tally">
@@ -569,23 +589,30 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
             ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
       // Combat: who this unit can attack from where it will stop, and exactly what each attack would do.
       const endHex = pv?.endHex[own.id] ?? own.hex;
-      const endFacing = pv?.endFacing[own.id] ?? end.facing;
-      const opts = ctx.attackOptions?.(own.id, endHex, endFacing) ?? [];
+      const opts = targetOptions(own);
       const made = pvAttacks().find((e) => e.attacker === own.id);
       const fires = opts.some((o) => o.ranged);
-      options += `<div class="ds-section"><h4>Combat</h4>${!opts.length
+      const ordered = orders[own.id]?.target;
+      const lost = ordered && !opts.some((o) => o.target.id === ordered) ? units().find((u) => u.id === ordered) : undefined;
+      options += `<div class="ds-section"><h4>Combat</h4>${lost ? `<p class="small warn">${esc(sideOf(lost.owner))} ${esc(lost.name)} is out of reach from ${label(endHex)}: no attack.</p>` : ''}${!opts.length
         ? `<p class="small">No enemy next to ${label(endHex)}${ds.range ? ` and none to fire at (within ${ds.range} hexes, in front and in sight)` : ''}: no attack this turn.</p>`
-        : `<p class="small">After moving, ${esc(own.name)} ${fires ? `fires at one enemy within ${ds.range} hexes, in front and in sight` : 'attacks one enemy next to it'}${opts.length > 1 ? '. Choose which:' : ':'}</p>
-          <div class="targets">${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
+        : `<p class="small">Attacking is optional. After moving, ${esc(own.name)} can ${fires ? `fire at an enemy within ${ds.range} hexes, in front and in sight` : 'attack an enemy next to it'}: pick one here or click it on the map.</p>
+          <div class="targets"><button class="target${ordered ? '' : ' on'}" data-action="target-none"><b>Don't attack</b></button>${opts.map((o) => `<button class="target${made?.target === o.target.id ? ' on' : ''}" data-action="target" data-target="${esc(o.target.id)}">
             <b>${esc(sideOf(o.target.owner))} ${esc(o.target.name)}</b>${o.ranged ? ` (fire, ${distance(endHex, o.target.hex)} hexes${o.arc === 'front' ? '' : `, ${o.arc}`})` : o.arc === 'front' ? '' : ` (${o.arc})`}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}</button>`).join('')}</div>
           ${made ? tallyHtml(made) + `<p class="small">${outcomeOn(made.target)}</p>` + (pvMorale(made.target) ? moraleHtml(pvMorale(made.target)!) : '') : ''}
-          ${orders[own.id]?.target ? `<button class="link" data-action="target-auto">Clear target (${fires ? 'fire at the nearest' : 'attack the weakest'})</button>` : ''}`}</div>`;
+`}</div>`;
     }
     if (enemy && ctx.mode === 'orders') {
       const on = pvAttacks().filter((e) => e.target === enemy.id);
       options = `<div class="ds-section"><h4>Attacks on this unit this turn</h4>${on.length
         ? on.map((e) => `<p class="small"><b>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))}</b>${e.arc === 'front' ? '' : ` (${e.arc})`}</p>${tallyHtml(e)}`).join('') + `<p class="small">${outcomeOn(enemy.id)}</p>` + (pvMorale(enemy.id) ? moraleHtml(pvMorale(enemy.id)!) : '')
         : '<p class="small">None of your units will attack it.</p>'}</div>`;
+      const able = canOrder() ? myUnits().filter((u) => targetOptions(u).some((o) => o.target.id === enemy.id)) : [];
+      if (able.length) {
+        options += `<div class="ds-section"><h4>Attack it with</h4><p class="small">Your units that can reach it this turn, from where they will stop:</p>
+          <div class="targets">${able.map((u) => { const o = targetOptions(u).find((x) => x.target.id === enemy.id)!; const on = orders[u.id]?.target === enemy.id;
+            return `<button class="target${on ? ' on' : ''}" data-action="attack-with" data-unit-id="${esc(u.id)}"><b>${esc(u.name)}</b>${o.ranged ? ' (fire)' : ''}: ${o.attack} vs ${o.defence} → ${plural(o.hits, 'hit')}${on ? ' ✓' : ''}</button>`; }).join('')}</div></div>`;
+      }
     }
     return `<div class="card datasheet" style="border-top:4px solid ${color}">
       <div class="ds-head"><span class="counter" style="background:${color};border-color:${color};color:#fff">${esc(ds.code)}</span>
@@ -792,11 +819,16 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     }
     if (action === 'face-auto' && selected) { orders[selected] = { ...orders[selected], path: pathOf(selected), facing: undefined }; dirty = true; return render(); }
     if (action === 'target' && selected) {
-      orders[selected] = { ...orders[selected], path: pathOf(selected), target: target.closest<HTMLElement>('[data-target]')!.dataset.target };
-      dirty = true;
+      const id = target.closest<HTMLElement>('[data-target]')!.dataset.target!;
+      setTarget(selected, orders[selected]?.target === id ? null : id); // click again to cancel
       return render();
     }
-    if (action === 'target-auto' && selected) { orders[selected] = { ...orders[selected], path: pathOf(selected), target: undefined }; dirty = true; return render(); }
+    if (action === 'target-none' && selected) { setTarget(selected, null); return render(); }
+    if (action === 'attack-with' && selected) {
+      const id = target.closest<HTMLElement>('[data-unit-id]')!.dataset.unitId!;
+      setTarget(id, orders[id]?.target === selected ? null : selected);
+      return render();
+    }
     const row = target.closest<HTMLElement>('tr[data-unit]');
     if (row) focusUnit(row.dataset.unit!);
   };

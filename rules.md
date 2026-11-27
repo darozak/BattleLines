@@ -6,7 +6,7 @@ dice: the page shows exactly what your orders will do before you end your turn. 
 the game as it plays on the [live site](https://darozak.github.io/BattleLines/).
 
 <!-- generated:version -->
-These rules are version **10**, the same as the game's link version: a link from another version won't open.
+These rules are version **11**, the same as the game's link version: a link from another version won't open.
 <!-- /generated -->
 
 The numbers in these rules are placeholders while the game is being playtested, and will change.
@@ -49,7 +49,8 @@ this order:
 
 1. **Movement**: your units move along their ordered paths (section 4).
 2. **Facing**: units turn to their ordered facing (section 5).
-3. **Combat**: each of your units attacks one enemy, if it can (sections 6 and 7).
+3. **Combat**: each of your units that you ordered to attack attacks its target, if it can reach it
+   (sections 6 and 7).
 4. **Morale**: badly damaged units check their morale (section 8).
 5. **Scoring**: you score for the objectives you hold (section 9).
 
@@ -103,31 +104,36 @@ edges. Every hex also has an **elevation** (the number shown in it).
 
 ## 6. Close combat
 
-1. After movement, each of your units that is next to an enemy attacks one of them: the one you ordered,
-   or else the weakest (lowest strength).
-2. The attack is a **tally** of modifiers, shown before you end your turn:
+1. **Attacks are optional.** A unit attacks only if you order it to, and only the enemy you pick. To
+   attack, select your unit and click the enemy on the map, or pick it on the unit's datasheet. Click it
+   again, or choose "Don't attack", to cancel.
+2. After movement, a unit attacks its target in **close combat** if the target is next to it. If the
+   target isn't in reach once the unit has moved, there is no attack.
+3. The attack is a **tally** of modifiers, shown before you end your turn:
    - **Attack** = the attacker's **strength**, +1 if it attacks the target's flank, +2 if it attacks the
      target's rear, + 1 for each level the attacker stands above the target (− 1 for each level below it),
      − 2 attacking across a river, − 1 attacking across a bridge.
    - **Defence** = 3, + the **cover** of the target's hex.
    - **Hits** = attack − defence, and never less than 0.
-3. All your attacks land together, after movement. Each hit removes one point of the target's strength;
+4. All your attacks land together, after movement. Each hit removes one point of the target's strength;
    a unit at 0 is **destroyed**.
 
 ## 7. Ranged attacks
 
-1. A unit with no enemy next to it after movement **fires** instead, if its datasheet gives it a range.
-2. It fires at the enemy you ordered, or else the nearest (then the weakest), that is:
+1. A unit with a range on its datasheet may **fire** at an enemy that isn't next to it. You pick the
+   target the same way as for close combat (section 6), and firing is just as optional.
+2. A unit with an enemy next to it after movement can't fire: it can only attack in close combat.
+3. The target must be, once the unit has moved and turned:
    - within its **range** in hexes;
    - in its **front** (section 5);
    - in **line of sight**: no hex between the two blocks sight (see the terrain table). The hexes the
      units stand in never block.
-3. The tally:
+4. The tally:
    - **Attack** = the unit's **fire**, − 1 for each hex beyond 2, + the flank and rear bonuses and the
      height modifier of close combat. Rivers don't matter.
    - **Defence** = 2, + the cover of the target's hex.
    - **Hits** = attack − defence, and never less than 0.
-4. Units without a range (cavalry, for example) never fire. Fire lands with the close-combat attacks.
+5. Units without a range (cavalry, for example) never fire. Fire lands with the close-combat attacks.
 
 ## 8. Morale
 

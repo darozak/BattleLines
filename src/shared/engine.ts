@@ -259,7 +259,7 @@ export function canFireAt(state: GameState, attacker: Unit, hex: HexKey, facing:
 
 /**
  * Enemies a unit could attack from a hex: every living enemy next to it (close combat, weakest first);
- * if there are none, every enemy it can fire at (nearest first, then weakest).
+ * if there are none, every enemy it can fire at (nearest first, then weakest). The player picks one.
  */
 export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey, facing: Facing = attacker.facing): Unit[] {
   const adj = new Set(neighbors(hex));
@@ -271,16 +271,15 @@ export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey, facin
 }
 
 function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrders, events: GameEvent[]): void {
-  // Each of the active player's units next to an enemy attacks it: the ordered target if it is in
-  // reach, otherwise the weakest. A unit with no enemy next to it fires, if it can, at the ordered
-  // target or else the nearest enemy in range. All attacks land together, after movement.
+  // Attacks are optional and deliberate (#31): a unit attacks only the enemy its orders name, and
+  // only if that enemy is in reach after movement: next to it (close combat), or, with no enemy next
+  // to it, in range, in front and in sight (fire). All attacks land together, after movement.
   const units = alive(state);
   const hits = new Map<UnitId, number>();
   for (const u of units) {
-    if (u.owner !== attacker) continue;
-    const targets = targetsFrom(state, u, u.hex);
-    if (!targets.length) continue;
-    const t = targets.find((x) => x.id === orders[u.id]?.target) ?? targets[0];
+    if (u.owner !== attacker || !orders[u.id]?.target) continue;
+    const t = targetsFrom(state, u, u.hex).find((x) => x.id === orders[u.id].target);
+    if (!t) continue;
     const result = combatTally(state, u, u.hex, t);
     events.push({ type: 'attack', attacker: u.id, attackerOwner: u.owner, attackerType: u.type, attackerHex: u.hex,
       target: t.id, targetOwner: t.owner, targetType: t.type, targetHex: t.hex, ...result });
