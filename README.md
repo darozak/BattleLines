@@ -53,7 +53,8 @@ round, scenario and scores are in a slim bar above it, and the **Report** button
   German, British and Soviet divisions).
 - **Hex battlefields** in three sizes (16×12, 24×18 and 40×30) that scroll and zoom, with light and
   dense forest, hills, marshes, ruins (and villages in the Napoleonic era) and lakes, each affecting
-  movement, sight and cover. Marshes and woods are slow going, and climbing costs extra.
+  movement, sight and cover. Marshes and woods are slow going, and climbing costs extra. On the map an
+  icon shows each hex's terrain, and its colour shows its height, from green lowland to brown high ground.
 - **Roads, rivers and bridges** are lines, not hexes. Roads meander and branch between hex centres:
   following one doubles a unit's speed whatever the ground. Rivers meander and branch along hex edges:
   troops must stop at a river before crossing, and attacking across it is hard. Where a road crosses a
@@ -123,7 +124,7 @@ pull requests are tested by `.github/workflows/tests.yml`. See [AD-03](Procedure
   - `link.ts`: the link encoding (compression, base64url).
   - `game.ts`: set up a game, deploy, end a turn, read a link, check the other players' turns by replay.
   - `types.ts`: data shapes.
-- `src/client/`: the web page. `main.ts`: screens (set up, deploy, play a turn, send the link). `board.ts`: the map (orders are given on it), unit info boxes and deployment.
+- `src/client/`: the web page. `main.ts`: screens (set up, deploy, play a turn, send the link). `board.ts`: the map (orders are given on it), unit info boxes and deployment. `terrain-art.ts`: terrain icons and the elevation colours.
 - `public/`: `index.html` and `style.css`.
 - `src/rules/`: the tables in `rules.md` that are generated from the game data.
 - `scripts/`: site assembly (including the Rules page, built from `rules.md`), a small local web server, and `update-rules.mjs`.

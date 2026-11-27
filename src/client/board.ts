@@ -11,6 +11,7 @@ import type { AttackOption, TurnPreview } from '../shared/engine.js';
 import type { Army, Deployment, Placement } from '../shared/setup.js';
 import { SCENARIOS } from '../shared/setup.js';
 import { esc, openDialog } from './util.js';
+import { elevationColor, terrainIcon, legendIcon, ELEVATION_COLORS } from './terrain-art.js';
 
 type OwnUnit = Extract<VisibleUnit, { own: true }>;
 type EnemyUnit = Extract<VisibleUnit, { own: false }>;
@@ -78,7 +79,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   const terrainAt = (hex: HexKey): Terrain => { const { col, row } = parse(hex); return TERRAIN[view.map.terrain[row * view.map.cols + col]]; };
   const elevationAt = (hex: HexKey): number => { const { col, row } = parse(hex); return view.map.elevation[row * view.map.cols + col] ?? 0; };
-  const maxElevation = Math.max(0, ...view.map.elevation);
   const player = (id: PlayerId) => ctx.players.find((p) => p.id === id);
   const colorOf = (ownerId: PlayerId) => SIDE_COLORS[player(ownerId)?.side ?? 0];
   const sideOf = (ownerId: PlayerId) => SIDE_NAMES[player(ownerId)?.side ?? 0];
@@ -324,10 +324,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       for (let c = 0; c < cols; c++) {
         const hex = `${c},${r}`;
         const p = px(hex);
-        out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${terrainAt(hex).color}"/>`);
-        // Lower ground is shaded darker; the height is written at the top of the hex.
+        // #53: the colour shows the elevation (lakes stay blue); an icon shows the terrain.
         const e = elevationAt(hex);
-        if (e < maxElevation) out.push(`<polygon class="shade" points="${hexPoints(p.x, p.y)}" fill-opacity="${((maxElevation - e) * 0.06).toFixed(2)}"/>`);
+        const type = view.map.terrain[r * cols + c];
+        out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${type === 'water' ? TERRAIN.water.color : elevationColor(e)}"/>`);
+        if (showLabels) out.push(terrainIcon(type, p.x, p.y + SIZE * 0.18, 0.58));
         if (showLabels) out.push(`<text class="elev" x="${p.x}" y="${p.y - SIZE * 0.6}">${e}</text>`);
       }
     }
@@ -749,9 +750,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <div class="mapwrap" id="mapwrap"></div>
       <div class="infobox" id="infobox" hidden></div>
     </div>
-    <div class="legend">${Object.values(TERRAIN).map((t) => `<span><i style="background:${t.color}"></i>${t.name}</span>`).join('')}
+    <div class="legend">${(Object.keys(TERRAIN) as (keyof typeof TERRAIN)[]).map((id) => `<span>${legendIcon(id)}${TERRAIN[id].name}</span>`).join('')}
+      <span class="elev-scale">elevation ${ELEVATION_COLORS.slice(0, 5).map((col, i) => `<i style="background:${col}" title="elevation ${i}">${i}</i>`).join('')}</span>
       <span><i class="line-key road-key"></i>road</span><span><i class="line-key river-key"></i>river</span><span><i class="line-key bridge-key"></i>bridge</span>
-      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span>number = elevation (darker = lower)</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
+      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span>number = elevation</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
   </div>
   <aside class="side" id="side"></aside>
 </div>`;

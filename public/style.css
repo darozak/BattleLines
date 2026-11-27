@@ -136,7 +136,6 @@ svg .preview-attack text { font: bold 10px sans-serif; fill: #fff; text-anchor: 
 svg .preview-attack { pointer-events: none; }
 
 /* Elevation (#22) */
-svg .shade { fill: #1f1a12; pointer-events: none; }
 svg .elev { font: bold 8px sans-serif; fill: #00000080; text-anchor: middle; pointer-events: none; }
 svg .cliff { fill: none; stroke: #3b2a16; stroke-width: 3.5; stroke-linecap: round; pointer-events: none; }
 .legend i.cliff-key { width: 14px; height: 0; border: 0; border-top: 3px solid #3b2a16; }
@@ -244,3 +243,7 @@ dialog.bl-dialog::backdrop { background: rgba(30, 28, 20, .45); }
 .email-card .card-next { margin: 4px 0 0; font-size: 14px; }
 .email-card .card-msg { display: block; margin-top: 8px; font-weight: normal; }
 .email-card textarea.message { width: 100%; margin-top: 4px; font: 15px/1.4 Georgia, serif; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; resize: vertical; }
+/* Terrain icons and the elevation colour scale (#53) */
+svg .ticon { pointer-events: none; }
+.legend .legend-icon { flex: none; }
+.legend .elev-scale i { width: 18px; height: 16px; font: bold 10px sans-serif; font-style: normal; color: #3b3a2f; text-align: center; line-height: 16px; border: 1px solid #0002; margin-left: 2px; }
