@@ -79,7 +79,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   let army: Army | null = null;
   let placements: Placement[] = [];
   let placing: string | null = null; // unit type to place with the next click in the zone
-  let autoArmy = false; // the army was picked by "Deploy army for me", so the next press may pick another (#35)
   const zone = new Set(ctx.deploy?.zone ?? []);
   const spent = () => placements.reduce((n, pl) => n + (view.datasheets[pl.type]?.points ?? 0), 0);
   const middle = `${Math.floor(view.map.cols / 2)},${Math.floor(view.map.rows / 2)}`;
@@ -627,8 +626,6 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const d = ctx.deploy!;
     if (!army) {
       return `<div class="card deploy"><h3>Choose your army</h3>
-        <div class="row"><button class="secondary" data-action="auto-deploy">Deploy army for me</button>
-          <span class="small">The game picks an army and places its units; press again for another.</span></div>
         ${d.armies.map((a) => `<div class="army"><div><b>${esc(a.name)}</b><div class="small">${esc(a.description)}</div>
           <div class="small">${Object.values(a.units).map((u) => `${esc(u.name)} (${u.points})`).join(' · ')}</div></div>
           ${d.taken[a.id] ? `<span class="small">Taken by ${esc(d.taken[a.id])}</span>` : `<button data-action="army" data-army="${esc(a.id)}">Choose</button>`}</div>`).join('')}</div>`;
@@ -649,19 +646,20 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         <tbody>${rows}</tbody></table></div>
       <p class="small">${placing ? `Click a highlighted hex in your starting zone to place a ${esc(view.datasheets[placing].name)}. Click a placed unit to remove it.` : 'Press Place, then click hexes in your starting zone (highlighted on the map).'}</p>
       <div class="row"><button data-action="finish-deploy" ${placements.length && !busy ? '' : 'disabled'}>${busy ? 'Finishing…' : 'Finish deployment'}</button>
-        <button class="secondary" data-action="auto-deploy" title="${autoArmy ? 'Pick an army and its units again' : `Pick a new set of ${esc(army.name)} units and places`}">${placements.length ? 'Deploy again for me' : 'Deploy army for me'}</button></div></div>`;
+        <button class="secondary" data-action="auto-deploy" title="Draw a random set of ${esc(army.name)} units (mostly cheaper ones) and place them in your zone; press again for another">${placements.length ? 'Deploy again for me' : 'Deploy army for me'}</button></div></div>`;
   }
 
+  /** Weight for drawing a unit type: cheap units far more often than expensive ones (#35). */
+  const drawWeight = (points: number) => 1 / (points * points);
+
   /**
-   * "Deploy army for me" (#35): pick an army no one else has (or keep the one the player chose), a
-   * random mix of its units up to the point limit, and place them in the starting zone, front hexes
-   * (nearest the centre) first. Only a suggestion: the player can change it, or press again for another.
+   * "Deploy army for me" (#35): with the player's chosen army, draw a random mix of its units up to the
+   * point limit (weighted towards cheap units) and place them in the starting zone, front hexes (nearest
+   * the centre) first. Only a suggestion: the player can change it, or press again for another.
    */
   function autoDeploy(): void {
     const d = ctx.deploy!;
-    const free = d.armies.filter((a) => !d.taken[a.id]);
-    if (!free.length) return;
-    if (!army || autoArmy) { army = free[Math.floor(Math.random() * free.length)]; autoArmy = true; }
+    if (!army) return;
     const types = Object.keys(army.units);
     const hexes = [...zone].filter((h) => !terrainAt(h).impassable && !view.units.some((u) => u.hex === h))
       .map((h) => ({ h, k: distance(h, middle) + Math.random() * 2.5 })).sort((a, b) => a.k - b.k).map((x) => x.h);
@@ -670,7 +668,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     while (picks.length < hexes.length) {
       const ok = types.filter((t) => cost + army!.units[t].points <= d.pointLimit);
       if (!ok.length) break;
-      const t = ok[Math.floor(Math.random() * ok.length)];
+      const weights = ok.map((t) => drawWeight(army!.units[t].points));
+      let r = Math.random() * weights.reduce((a, w) => a + w, 0);
+      let i = 0;
+      while (i < ok.length - 1 && (r -= weights[i]) >= 0) i++;
+      const t = ok[i];
       picks.push(t);
       cost += army.units[t].points;
     }
@@ -823,12 +825,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (action === 'auto-deploy' && !busy) return autoDeploy();
     if (action === 'army') {
       army = ctx.deploy!.armies.find((a) => a.id === target.closest<HTMLElement>('[data-army]')!.dataset.army) ?? null;
-      autoArmy = false;
       placements = [];
       placing = null;
       return render();
     }
-    if (action === 'army-change') { army = null; autoArmy = false; placements = []; placing = null; selected = null; return render(); }
+    if (action === 'army-change') { army = null; placements = []; placing = null; selected = null; return render(); }
     if (action === 'place') {
       const type = target.closest<HTMLElement>('[data-type]')!.dataset.type!;
       placing = placing === type ? null : type;
