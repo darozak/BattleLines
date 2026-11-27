@@ -81,10 +81,11 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 
 - **Roads, rivers and bridges are lines** (placeholder values):
   - **Roads** join hex centres: a meandering west–east and north–south road, with branches to villages, ruins
-    and other points. A step **along** a road costs 1, whatever the terrain.
+    and other points. A step **along** a road costs ½, whatever the terrain, so a unit on a road goes twice as far.
   - **Rivers** run along hex edges: a meandering river from the north edge to the south edge, with branching
-    tributaries. **Crossing** one costs +2 movement; attacking across one is −2 attack.
-  - **Bridges** are where a road crosses a river: no extra movement, and −1 to attack across.
+    tributaries. A unit must **stop at a river** before crossing: it can only cross as the first step of a
+    move, and crossing costs +2 movement. Attacking across a river is −2 attack.
+  - **Bridges** are where a road crosses a river: a road step (½), no need to stop first, and −1 to attack across.
   - The map stores both as pairs of adjacent hexes (`roads`, `rivers`); a pair in both lists is a bridge.
 
 - Every unit faces one of the six hexsides.
@@ -97,6 +98,9 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 1. **Movement:** units move one hex at a time along their paths. A unit stops when it becomes adjacent to a
    new enemy, and can't enter an enemy's hex. Moving units face their last step unless ordered otherwise.
    Each step may rise or fall by at most the unit's **climb** (1 for most units, 2 for light troops).
+   A step costs the terrain's move cost (½ along a road), +1 for each level climbed (descending is free),
+   +2 to ford a river, which can only be the first step of a move. The first step of a move is always
+   allowed, whatever it costs, so slow ground never traps a unit.
    Friendly units may pass through each other, but no two may end a move in the same hex: a unit that
    stayed put keeps its hex, otherwise the one that got there first does, and the other stops on the last
    free hex of its route. The map only offers hexes where a unit can actually stop.

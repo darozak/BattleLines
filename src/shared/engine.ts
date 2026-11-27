@@ -4,7 +4,7 @@
 //   resolvePlayerTurn(state, orders) -> { state, events }
 // The movement/combat/scoring numbers below are PLACEHOLDERS until the rules are written.
 import { neighbors, distance, line, inBounds, isFacing, facingToward, arcOf } from './hex.js';
-import { terrainAt, elevationAt, stepCost, hasRiver, hasBridge, RIVER_ATTACK, BRIDGE_ATTACK } from './terrain.js';
+import { terrainAt, elevationAt, stepCost, stepProblem, hasRiver, hasBridge, RIVER_ATTACK, BRIDGE_ATTACK } from './terrain.js';
 import type {
   AttackEvent, Datasheet, Facing, GameEvent, GameState, MoraleEvent, TallyLine, HexKey, PlayerId, PlayerOrders, PlayerView, Unit, UnitId, VisibleUnit,
 } from './types.js';
@@ -50,7 +50,7 @@ export function validateOrders(state: GameState, playerId: PlayerId, orders: unk
     let mp = stats(state, unit).move;
     let prev = unit.hex;
     let ok = true;
-    for (const h of path) {
+    for (const [i, h] of path.entries()) {
       if (!inBounds(h, state.map.cols, state.map.rows) || !neighbors(prev).includes(h)) {
         errors.push(`${unit.name}: path is not continuous`);
         ok = false;
@@ -64,8 +64,9 @@ export function validateOrders(state: GameState, playerId: PlayerId, orders: unk
       }
       const t = terrainAt(state.map, h);
       if (t.impassable) { errors.push(`${unit.name}: cannot enter ${t.name}`); ok = false; break; }
-      mp -= stepCost(state.map, prev, h); // roads, rivers and bridges change the cost of a step
-      if (mp < 0) { errors.push(`${unit.name}: not enough movement`); ok = false; break; }
+      const problem = stepProblem(state.map, prev, h, i, mp); // slow ground, roads, rivers and climbs
+      if (problem) { errors.push(`${unit.name}: ${problem}`); ok = false; break; }
+      mp -= stepCost(state.map, prev, h);
       prev = h;
     }
     const facing = (order as { facing?: unknown } | null)?.facing;

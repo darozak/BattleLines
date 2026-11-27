@@ -35,10 +35,11 @@ turn at a time.
   German, British and Soviet divisions).
 - **Hex battlefields** in three sizes (16×12, 24×18 and 40×30) that scroll and zoom, with light and
   dense forest, hills, marshes, ruins (and villages in the Napoleonic era) and lakes, each affecting
-  movement, sight and cover.
+  movement, sight and cover. Marshes and woods are slow going, and climbing costs extra.
 - **Roads, rivers and bridges** are lines, not hexes. Roads meander and branch between hex centres:
-  following one is quick whatever the ground. Rivers meander and branch along hex edges: crossing one
-  is slow and attacking across it is hard. Where a road crosses a river there is a bridge.
+  following one doubles a unit's speed whatever the ground. Rivers meander and branch along hex edges:
+  troops must stop at a river before crossing, and attacking across it is hard. Where a road crosses a
+  river there is a bridge.
 - **Elevation**: every hex has a height. Most units can climb or descend only one level per step
   (light troops can manage two), so steep drops act as cliffs. Attacking from higher ground is stronger;
   attacking uphill is weaker.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
-import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
+import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
 import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
 import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, ARC_BONUS, canFireAt, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
 import type { AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
@@ -406,16 +406,45 @@ test('elevation: generated with the map, the same for the same seed, hills highe
   a.terrain.forEach((t, i) => { if (t === 'water') assert.equal(a.elevation[i], 0); });
 });
 
-test('roads: following one costs 1 a step whatever the terrain', () => {
+test('roads: following one costs ½ a step whatever the terrain', () => {
   const s = openState();
   s.units = [unit('a', 'p0', 'heavy', '2,5'), unit('z', 'p1', 'infantry', '15,11')]; // move 3
   for (const h of ['3,5', '4,5', '5,5']) s.map.terrain[Number(h.split(',')[1]) * 16 + Number(h.split(',')[0])] = 'dense_forest';
   const path = ['3,5', '4,5', '5,5'];
   assert.equal(validateOrders(s, 'p0', { a: { path } }).ok, false, 'three hexes of dense forest: 9 points');
   s.map.roads = [edgeKey('2,5', '3,5'), edgeKey('3,5', '4,5'), edgeKey('4,5', '5,5')];
-  assert.equal(validateOrders(s, 'p0', { a: { path } }).ok, true, 'along the road: 3 points');
+  assert.equal(validateOrders(s, 'p0', { a: { path } }).ok, true, 'along the road: 1½ points');
   assert.equal(play(s, 0, { a: { path } }).state.units[0].hex, '5,5');
   assert.equal(stepCost(s.map, '5,5', '6,5'), 1, 'leaving the road: the terrain cost again (open)');
+  // A road doubles a unit's move: six hexes for a move of 3.
+  const long = ['3,5', '4,5', '5,5', '6,5', '7,5', '8,5'];
+  s.map.roads = long.map((h, i) => edgeKey(i ? long[i - 1] : '2,5', h));
+  assert.equal(validateOrders(s, 'p0', { a: { path: long } }).ok, true);
+  assert.equal(validateOrders(s, 'p0', { a: { path: [...long, '9,5'] } }).ok, false, 'off the road: no movement left');
+});
+
+test('movement: marshes and woods are slow, climbs cost extra, and the first step is always allowed', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '4,5'), unit('z', 'p1', 'infantry', '15,11')]; // move 3
+  const set = (h: string, t: GameState['map']['terrain'][number], e = 0) => {
+    const i = Number(h.split(',')[1]) * 16 + Number(h.split(',')[0]);
+    s.map.terrain[i] = t; s.map.elevation[i] = e;
+  };
+  set('5,5', 'marsh');
+  assert.equal(stepCost(s.map, '4,5', '5,5'), 3);
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5', '6,5'] } }).ok, false, 'marsh uses the whole move');
+  set('5,5', 'light_forest');
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5', '6,5'] } }).ok, true, 'light forest 2 + open 1');
+  set('5,5', 'open', 1);
+  assert.equal(stepCost(s.map, '4,5', '5,5'), 1 + CLIMB_COST, 'climbing a level');
+  assert.equal(stepCost(s.map, '5,5', '4,5'), 1, 'descending is free');
+  set('5,5', 'dense_forest', 1);
+  assert.equal(stepCost(s.map, '4,5', '5,5'), 4, 'uphill into dense forest: more than a move of 3');
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5'] } }).ok, true, 'but the first step is always allowed');
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['3,5', '4,5'] } }).ok, true);
+  set('2,5', 'open');
+  const later = neighbors('5,5').find((h) => h !== '4,5' && neighbors(h).includes('4,5'))!;
+  assert.match(validateOrders(s, 'p0', { a: { path: [later, '5,5'] } }).errors.join(), /not enough movement/, 'not as a later step');
 });
 
 test('rivers: crossing costs extra and weakens attacks; a bridge removes the extra cost', () => {
@@ -425,13 +454,16 @@ test('rivers: crossing costs extra and weakens attacks; a bridge removes the ext
   assert.equal(stepCost(s.map, '4,5', '5,5'), 1 + RIVER_CROSSING_COST);
   assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5'] } }).ok, true, 'heavy (move 3) can ford: 3 points');
   assert.equal(validateOrders(s, 'p0', { a: { path: ['5,5', '5,4'] } }).ok, false, 'no movement left after fording');
+  assert.match(validateOrders(s, 'p0', { a: { path: ['3,5', '4,5', '5,5'] } }).errors.join(), /must stop at the river/);
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['3,5', '4,5'] } }).ok, true, 'up to the bank');
   // Attacking across the river from 5,5 into 6,5.
   const across = combatTally(s, { ...s.units[0], hex: '5,5' }, '5,5', s.units[1]);
   assert.ok(across.tally.some((l) => l.label === 'across a river' && l.value === RIVER_ATTACK));
   // A road over the river: a bridge. No extra movement; a smaller attack penalty.
   s.map.roads = [edgeKey('4,5', '5,5'), edgeKey('5,5', '6,5')];
   assert.ok(hasBridge(s.map, '5,5', '4,5'));
-  assert.equal(stepCost(s.map, '4,5', '5,5'), 1);
+  assert.equal(stepCost(s.map, '4,5', '5,5'), ROAD_STEP_COST);
+  assert.equal(validateOrders(s, 'p0', { a: { path: ['3,5', '4,5', '5,5'] } }).ok, true, 'a bridge needs no stop');
   const bridge = combatTally(s, { ...s.units[0], hex: '5,5' }, '5,5', s.units[1]);
   assert.ok(bridge.tally.some((l) => l.label === 'across a bridge' && l.value === BRIDGE_ATTACK));
   assert.ok(!bridge.tally.some((l) => l.label === 'across a river'));

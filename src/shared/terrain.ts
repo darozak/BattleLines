@@ -19,10 +19,13 @@ export const TERRAIN: Record<TerrainType, Terrain> = {
 // A road segment always crosses the edge between its two hexes, so a key in both lists is a bridge.
 // PLACEHOLDER values until the rules are written.
 
-/** Following a road: each step along it costs this, whatever the terrain. */
-export const ROAD_STEP_COST = 1;
-/** Crossing a river (not by a bridge): extra movement. */
+/** Following a road: each step along it costs this, whatever the terrain (twice as fast as open ground). */
+export const ROAD_STEP_COST = 0.5;
+/** Crossing a river (not by a bridge): extra movement. A unit must stop at a river first: it can only
+ * cross as the first step of a move. */
 export const RIVER_CROSSING_COST = 2;
+/** Climbing: extra movement for each level up (descending is free). */
+export const CLIMB_COST = 1;
 /** Attacking across a river, or across a bridge. */
 export const RIVER_ATTACK = -2;
 export const BRIDGE_ATTACK = -1;
@@ -40,12 +43,27 @@ export const hasRoad = (map: GameMap, a: HexKey, b: HexKey) => setOf(map.roads).
 export const hasRiver = (map: GameMap, a: HexKey, b: HexKey) => setOf(map.rivers).has(edgeKey(a, b));
 export const hasBridge = (map: GameMap, a: HexKey, b: HexKey) => hasRiver(map, a, b) && hasRoad(map, a, b);
 
+/** Whether a step crosses a river other than by a bridge (it must then be the first step of a move). */
+export const fordsRiver = (map: GameMap, from: HexKey, to: HexKey) => hasRiver(map, from, to) && !hasRoad(map, from, to);
+
 /** Movement points to step from one hex into an adjacent one (Infinity if it can't be entered). */
 export function stepCost(map: GameMap, from: HexKey, to: HexKey): number {
   const t = terrainAt(map, to);
   if (t.impassable) return Infinity;
-  if (hasRoad(map, from, to)) return ROAD_STEP_COST; // following a road; crossing a river by its bridge
-  return t.cost + (hasRiver(map, from, to) ? RIVER_CROSSING_COST : 0);
+  const climb = Math.max(0, elevationAt(map, to) - elevationAt(map, from)) * CLIMB_COST;
+  if (hasRoad(map, from, to)) return ROAD_STEP_COST + climb; // following a road; crossing a river by its bridge
+  return t.cost + climb + (hasRiver(map, from, to) ? RIVER_CROSSING_COST : 0);
+}
+
+/**
+ * Why a unit can't take this step of a move (`index` 0 is the first step; `mp` the movement it has left
+ * before the step), or null if it can. The first step is always allowed, whatever it costs, so slow
+ * ground never traps a unit.
+ */
+export function stepProblem(map: GameMap, from: HexKey, to: HexKey, index: number, mp: number): string | null {
+  if (index > 0 && fordsRiver(map, from, to)) return 'must stop at the river before crossing';
+  if (index > 0 && stepCost(map, from, to) > mp) return 'not enough movement';
+  return null;
 }
 
 export function elevationAt(map: GameMap, hex: HexKey): number {

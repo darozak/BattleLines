@@ -2,7 +2,7 @@
 // orders, reports). Clicking a unit, in the table or on the map, zooms the map to it and opens
 // its datasheet; for the player's own units the datasheet has their move and facing orders.
 import { parse, neighbors, distance, inBounds, toPixel, label, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
-import { TERRAIN, stepCost } from '../shared/terrain.js';
+import { TERRAIN, stepCost, fordsRiver } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
@@ -166,8 +166,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const t = terrainAt(n);
         if (t.impassable || blocked.has(n)) continue;
         if (Math.abs(elevationAt(n) - elevationAt(h)) > unit.climb) continue; // too steep for this unit
+        // The first step of a move is always allowed; later steps need the movement, and can't ford a river.
+        const first = h === start && !path.length;
+        if (!first && fordsRiver(view.map, h, n)) continue;
         const c = best.get(h)!.cost + stepCost(view.map, h, n);
-        if (c > budget) continue;
+        if (!first && c > budget) continue;
         if (!best.has(n) || c < best.get(n)!.cost) { best.set(n, { cost: c, prev: h }); queue.push(n); }
       }
     }
@@ -461,6 +464,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (path.length) return `to ${label(end.hex)}${turn}`;
     return orders[u.id]?.facing !== undefined && end.facing !== u.facing ? `turn ${FACING_ARROWS[end.facing]}` : 'hold';
   }
+  /** Movement points, with halves from roads: 1½. */
+  const mpText = (n: number) => (Number.isInteger(n) ? `${n}` : `${Math.floor(n) || ''}½`);
   const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
   /** A combat tally sheet: every modifier on each side, the totals, and the result. */
@@ -551,7 +556,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
           data-action="face" data-facing="${f}" title="Face ${FACING_NAMES[f]}">${FACING_ARROWS[f]}</button>`).join('');
       options = `<div class="ds-section"><h4>Orders</h4>
         <p>${path.length ? `Move to <b>${label(path[path.length - 1])}</b> via ${path.map(label).join(', ')}` : '<b>Hold position</b>'}
-        <br><span class="small">Movement used ${used} of ${own.move}.</span></p>
+        <br><span class="small">Movement used ${mpText(used)} of ${own.move}.${used > own.move ? ' The first step of a move is always allowed, whatever it costs.' : ''}</span></p>
         <p class="small">Click a highlighted hex on the map to extend the move; click the end of the path to step back.</p>
         <div class="row">
           <button class="secondary" data-action="undo" ${path.length ? '' : 'disabled'}>Undo step</button>
