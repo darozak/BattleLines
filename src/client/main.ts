@@ -145,15 +145,28 @@ function wireShare(root: HTMLElement, hash: string, s: Sending, onShared?: () =>
         const html = `<div><a href="${esc(url)}"><img src="${esc(cardUrl(card.dataset.card!))}" alt="${esc(CARD_ALT[s.kind])}" width="600" style="max-width:100%;height:auto;border:0;border-radius:8px"></a>`
           + (msg ? `<p style="font-size:16px;margin:12px 0 6px">${esc(msg).replace(/\n/g, '<br>')}</p>` : '')
           + `<p style="margin:6px 0"><a href="${esc(url)}">Open the game</a></p></div>`;
-        try {
-          await navigator.clipboard.write([new ClipboardItem({
-            'text/html': new Blob([html], { type: 'text/html' }),
-            'text/plain': new Blob([`${msg ? `${msg}\n` : ''}${url}`], { type: 'text/plain' }),
-          })]);
-          btn.textContent = 'Card copied ✓';
-        } catch {
-          btn.textContent = "This browser won't copy the card: use Copy link";
+        const text = `${msg ? `${msg}\n` : ''}${url}`;
+        // #51: copy the way Ctrl+C does (the copy command, with the HTML and text set on the copy event).
+        // Gmail pasted only the text of a copy made with navigator.clipboard.write, so that is the fallback.
+        let copied = false;
+        const onCopy = (ev: ClipboardEvent) => {
+          ev.clipboardData?.setData('text/html', html);
+          ev.clipboardData?.setData('text/plain', text);
+          ev.preventDefault();
+          copied = !!ev.clipboardData;
+        };
+        document.addEventListener('copy', onCopy);
+        try { document.execCommand('copy'); } catch { /* not supported */ } finally { document.removeEventListener('copy', onCopy); }
+        if (!copied) {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({
+              'text/html': new Blob([html], { type: 'text/html' }),
+              'text/plain': new Blob([text], { type: 'text/plain' }),
+            })]);
+            copied = true;
+          } catch { /* not allowed */ }
         }
+        btn.textContent = copied ? 'Card copied ✓' : "This browser won't copy the card: use Copy link";
       } else if (kind === 'copy') {
         try {
           await navigator.clipboard.writeText(url);
