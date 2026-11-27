@@ -104,7 +104,16 @@ interface Mover {
   startFacing: Facing;
 }
 
-function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, events: GameEvent[]): void {
+/**
+ * The enemies whose front hexes include `hex`: `hex` is next to them, on one of their front three
+ * hexsides (#33). A unit entering such a hex is engaged and stops; leaving one draws a free attack.
+ */
+export function engagedBy(state: GameState, owner: PlayerId, hex: HexKey): Unit[] {
+  const adj = new Set(neighbors(hex));
+  return alive(state).filter((o) => o.owner !== owner && adj.has(o.hex) && arcOf(o.hex, o.facing, hex) === 'front');
+}
+
+function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, PlayerOrders>, events: GameEvent[], struck: Set<UnitId>): void {
   const units = alive(state);
   const byId = new Map(units.map((u) => [u.id, u]));
   const movers = new Map<UnitId, Mover>();
@@ -122,8 +131,7 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
   for (let impulse = 0; impulse < maxImpulses; impulse++) {
     const active = [...movers.values()].filter((m) => !m.stopped && m.path.length);
     if (!active.length) break;
-    const occupant = new Map(units.map((u) => [u.hex, u]));
-    const adjBefore = new Map(active.map((m) => [m.unit.id, new Set(enemiesAdjacent(units, m.unit).map((e) => e.id))]));
+    const occupant = new Map(units.filter((u) => u.strength > 0).map((u) => [u.hex, u]));
 
     // Everyone declares the hex they want to enter this impulse.
     const wants = new Map<HexKey, Mover[]>();
@@ -147,6 +155,25 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
         else accepted.add(m);
       }
     }
+    // Disengaging (#33): each enemy whose front hexes the unit is leaving makes a free close-combat
+    // attack on it first. Hits land at once; a unit destroyed this way goes no further.
+    for (const m of [...accepted].sort((a, b) => a.unit.id.localeCompare(b.unit.id))) {
+      for (const e of engagedBy(state, m.unit.owner, m.unit.hex).sort((a, b) => a.id.localeCompare(b.id))) {
+        const result = combatTally(state, e, e.hex, m.unit);
+        events.push({ type: 'attack', attacker: e.id, attackerOwner: e.owner, attackerType: e.type, attackerHex: e.hex,
+          target: m.unit.id, targetOwner: m.unit.owner, targetType: m.unit.type, targetHex: m.unit.hex, ...result, free: true });
+        if (!result.hits) continue;
+        struck.add(m.unit.id);
+        m.unit.strength = Math.max(0, m.unit.strength - result.hits);
+        if (m.unit.strength === 0) {
+          events.push({ type: 'destroyed', unit: m.unit.id, owner: m.unit.owner, unitType: m.unit.type, hex: m.unit.hex });
+          accepted.delete(m);
+          m.stopped = true;
+          m.path = [];
+          break;
+        }
+      }
+    }
     for (const m of accepted) {
       const hex = m.path.shift()!;
       m.mp -= stepCost(state.map, m.unit.hex, hex);
@@ -154,11 +181,11 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
       m.unit.hex = hex;
       m.traversed.push(hex);
     }
-    // Contact: a moving unit halts when it becomes adjacent to a new enemy.
-    for (const m of active) {
+    // Engaging (#33): a unit that enters an enemy's front hexes stops there.
+    for (const m of accepted) {
       if (m.stopped || !m.path.length) continue;
-      const before = adjBefore.get(m.unit.id)!;
-      if (enemiesAdjacent(units, m.unit).some((e) => !before.has(e.id))) stop(m, 'contact');
+      const by = engagedBy(state, m.unit.owner, m.unit.hex);
+      if (by.length) stop(m, `engaged by ${by.map((e) => e.name).join(' and ')}`);
     }
   }
 
@@ -168,7 +195,7 @@ function resolveMovement(state: GameState, ordersByPlayer: Record<PlayerId, Play
   const rank = new Map(state.units.map((u, i) => [u.id, i]));
   for (;;) {
     const at = new Map<HexKey, { unit: Unit; arrived: number }[]>();
-    for (const u of units) {
+    for (const u of units.filter((x) => x.strength > 0)) { // a unit destroyed while disengaging takes no room
       const m = movers.get(u.id);
       const entry = { unit: u, arrived: m ? m.traversed.length - 1 : -1 };
       if (!at.has(u.hex)) at.set(u.hex, []);
@@ -281,7 +308,7 @@ export function targetsFrom(state: GameState, attacker: Unit, hex: HexKey, facin
   return [...close, ...fire];
 }
 
-function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrders, events: GameEvent[]): void {
+function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrders, events: GameEvent[], struck: Set<UnitId>): void {
   // Attacks are optional and deliberate (#31): a unit attacks only the enemy its orders name, and
   // only if that enemy is in reach after movement: next to it (close combat), or, unless an adjacent
   // enemy faces it (#32), in range, in front and in sight (fire). All attacks land together, after movement.
@@ -301,7 +328,7 @@ function resolveCombat(state: GameState, attacker: PlayerId, orders: PlayerOrder
     u.strength = Math.max(0, u.strength - n);
     if (u.strength === 0) events.push({ type: 'destroyed', unit: u.id, owner: u.owner, unitType: u.type, hex: u.hex });
   }
-  resolveMorale(state, [...hits.keys()], events);
+  resolveMorale(state, [...new Set([...struck, ...hits.keys()])], events);
 }
 
 // ---------------------------------------------------------------- morale (PLACEHOLDER numbers)
@@ -399,8 +426,9 @@ export function resolvePlayerTurn(prevState: GameState, orders: PlayerOrders): T
   const active = currentPlayer(state);
   const events: GameEvent[] = [];
   const valid = validateOrders(state, active, orders).orders;
-  resolveMovement(state, { [active]: valid }, events);
-  resolveCombat(state, active, valid, events);
+  const struck = new Set<UnitId>(); // units hit by free attacks while moving (#33), for morale
+  resolveMovement(state, { [active]: valid }, events, struck);
+  resolveCombat(state, active, valid, events, struck);
   resolveScoring(state, active, events);
 
   // Next player with units left; a new round starts when play wraps around.

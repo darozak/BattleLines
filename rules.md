@@ -6,7 +6,7 @@ dice: the page shows exactly what your orders will do before you end your turn. 
 the game as it plays on the [live site](https://darozak.github.io/BattleLines/).
 
 <!-- generated:version -->
-These rules are version **12**, the same as the game's link version: a link from another version won't open.
+These rules are version **13**, the same as the game's link version: a link from another version won't open.
 <!-- /generated -->
 
 The numbers in these rules are placeholders while the game is being playtested, and will change.
@@ -47,7 +47,8 @@ The battle is fought in **rounds**. In each round every player with units left t
 order. On your turn you give orders to your units, then end the turn. Ending the turn resolves it in
 this order:
 
-1. **Movement**: your units move along their ordered paths (section 4).
+1. **Movement**: your units move along their ordered paths (section 4). Units leaving an enemy's front
+   hexes take its free attacks as they go (section 4.6).
 2. **Facing**: units turn to their ordered facing (section 5).
 3. **Combat**: each of your units that you ordered to attack attacks its target, if it can reach it
    (sections 6 and 7).
@@ -73,7 +74,16 @@ strike back on your turn; they act on their own turns.
    step of a move, so a unit that reaches the bank waits there until its next turn. A **bridge** (where
    a road crosses a river) is a road step: no stop and no extra cost.
 5. **Lakes** are impassable. A unit can't enter a hex held by an enemy.
-6. **Contact**: a moving unit stops as soon as it comes next to an enemy it wasn't next to before.
+6. **Engaging and disengaging**. An enemy's **front hexes** are the three hexes next to it on its front
+   three hexsides (section 5).
+   - **Engaging**: a unit that enters an enemy's front hex must stop there and end its move. It can still
+     attack. Coming next to an enemy's flank or rear doesn't stop a unit.
+   - **Disengaging**: when a unit steps out of an enemy's front hex, that enemy first makes a **free
+     attack** on it, a close-combat attack with the usual tally (section 6). Its hits land at once, and a
+     unit destroyed this way goes no further. A unit leaving the front hexes of several enemies takes a
+     free attack from each.
+   - Free attacks are part of your move, not the enemy's turn: they need no orders, and they count
+     towards the morale check at the end of the turn (section 8).
 7. **Friendly units** may move through each other, but no two may end a move in the same hex. A unit
    that didn't move keeps its hex; otherwise the unit that got there first does, and the other stops on
    the last hex of its path where it can.
@@ -139,7 +149,7 @@ edges. Every hex also has an **elevation** (the number shown in it).
 
 ## 8. Morale
 
-1. After the attacks, each unit that took hits this turn, survived, and is down to **half its starting
+1. After the attacks, each unit that took hits this turn (free attacks included), survived, and is down to **half its starting
    strength or less** checks its morale.
 2. The tally:
    - **Morale** = the unit's **morale**, + the **rally** value of each friendly rallying unit (guards and

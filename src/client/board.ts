@@ -157,11 +157,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     for (const u of myUnits()) {
       if (u.id !== unit.id && pathOf(u.id).length) noStop.add(plannedEnd(u).hex);
     }
+    // Engaging (#33): a unit that enters an enemy's front hexes stops there, so a route can't go on
+    // from one (except from where the unit starts, which it may leave, drawing free attacks).
+    const engaged = new Set(others().flatMap((e) => neighbors(e.hex, cols, rows).filter((h) => arcOf(e.hex, e.facing, h) === 'front')));
     const best = new Map<HexKey, { cost: number; prev: HexKey }>([[start, { cost: 0, prev: start }]]);
     const queue = [start];
     while (queue.length) {
       queue.sort((a, b) => best.get(a)!.cost - best.get(b)!.cost);
       const h = queue.shift()!;
+      if (engaged.has(h) && (h !== start || path.length)) continue;
       for (const n of neighbors(h, cols, rows)) {
         const t = terrainAt(n);
         if (t.impassable || blocked.has(n)) continue;
@@ -444,6 +448,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       case 'attack': {
         const target = unitDesc(e.target, e.targetOwner, e.targetType);
         const arc = e.arc === 'front' ? '' : ` in the ${e.arc}`;
+        if (e.free) return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} made a free attack on ${target}${arc} as it disengaged: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
         return `${unitDesc(e.attacker, e.attackerOwner, e.attackerType)} ${e.ranged ? 'fired at' : 'attacked'} ${target}${arc}: attack ${e.attack} vs defence ${e.defence}, ${plural(e.hits, 'hit')}.`;
       }
       case 'destroyed': return `${unitDesc(e.unit, e.owner, e.unitType)} destroyed at ${label(e.hex)}.`;
@@ -589,6 +594,11 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
             ${end.auto ? '' : '<button class="link" data-action="face-auto">Clear facing order</button>'}</div></div></div>`;
       // Combat: who this unit can attack from where it will stop, and exactly what each attack would do.
       const endHex = pv?.endHex[own.id] ?? own.hex;
+      const freeOn = pvAttacks().filter((e) => e.free && e.target === own.id);
+      if (freeOn.length) {
+        options += `<div class="ds-section"><h4>Disengaging</h4><p class="small warn">Leaving ${label(own.hex)} takes ${esc(own.name)} out of the front of ${freeOn.map((e) => esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))).join(' and ')}: ${freeOn.length > 1 ? 'each makes' : 'it makes'} a free attack first.</p>`
+          + freeOn.map((e) => tallyHtml(e)).join('') + `<p class="small">${outcomeOn(own.id)}</p></div>`;
+      }
       const opts = targetOptions(own);
       const made = pvAttacks().find((e) => e.attacker === own.id);
       const fires = opts.some((o) => o.ranged);
@@ -701,7 +711,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const items = events.map((e) => {
       if (e.type === 'attack') {
         const arc = e.arc === 'front' ? '' : ` (${e.arc})`;
-        return `<li><details><summary>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))} ${e.ranged ? 'fires at' : '→'} ${esc(unitDesc(e.target, e.targetOwner, e.targetType))}${arc}: ${e.attack} vs ${e.defence}, <b>${plural(e.hits, 'hit')}</b></summary>${tallyHtml(e)}</details></li>`;
+        return `<li><details><summary>${esc(unitDesc(e.attacker, e.attackerOwner, e.attackerType))} ${e.free ? 'free attack on' : e.ranged ? 'fires at' : '→'} ${esc(unitDesc(e.target, e.targetOwner, e.targetType))}${arc}${e.free ? ' as it disengages' : ''}: ${e.attack} vs ${e.defence}, <b>${plural(e.hits, 'hit')}</b></summary>${tallyHtml(e)}</details></li>`;
       }
       if (e.type === 'halt') return `<li class="warn">${esc(unitDesc(e.unit, e.owner))} will stop at ${label(e.hex)} (${esc(e.reason)}).</li>`;
       if (e.type === 'destroyed') return `<li><b>${esc(unitDesc(e.unit, e.owner, e.unitType))} will be destroyed.</b></li>`;

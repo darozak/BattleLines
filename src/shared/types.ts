@@ -153,6 +153,8 @@ export interface AttackEvent {
   targetHex: HexKey;
   /** True for a ranged attack (fire); false for close combat with an adjacent enemy. */
   ranged: boolean;
+  /** True for a free attack on a unit leaving the attacker's front hexes (disengaging, #33). */
+  free?: boolean;
   /** Which of the target's arcs the attack came from. */
   arc: 'front' | 'flank' | 'rear';
   /** Every modifier that decided the outcome. */

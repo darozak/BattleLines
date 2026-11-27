@@ -103,7 +103,9 @@ rules give: movement, facing, combat (close combat and fire land together), mora
 - **Movement** is simulated in impulses: every moving unit takes one step per impulse, so contact and
   crowding are decided by who gets where first, not by the order of the orders. Step costs and the river
   rule come from `stepCost` and `stepProblem` in `src/shared/terrain.ts`, which the page also uses to
-  highlight moves, so the map only offers hexes the engine will accept.
+  highlight moves, so the map only offers hexes the engine will accept. Before each step, enemies whose
+  front hexes the unit is leaving make their free attacks (`engagedBy`); after it, a unit that has
+  entered an enemy's front hexes stops. The page's move highlights don't route through such hexes.
 - **Combat**: every attack is worked out against the board after movement, then all hits are applied.
 - **Morale**: every check is made against the board after the attacks, then units that fail are removed.
 - **Preview**: the page runs `resolvePlayerTurn` on the planned orders, so the preview is exactly what

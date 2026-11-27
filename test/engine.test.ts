@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
 import { edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
 import { createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
-import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, ARC_BONUS, canFireAt, pinnedBy, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
+import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, engagedBy, ARC_BONUS, canFireAt, pinnedBy, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
 import type { AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
 /** Simple unit types for rule tests (the eras' own units are tested separately). */
@@ -134,11 +134,41 @@ test('friendly units pass through each other, but never end a move in the same h
   assert.equal(r.state.units.find((u) => u.id === 'a')!.hex, '3,5');
 });
 
-test('movement halts on contact with a new enemy', () => {
+test('engaging: a unit entering an enemy\'s front hexes stops there; its flank or rear does not stop it', () => {
   const s = openState();
-  s.units = [unit('a', 'p0', 'scout', '2,5'), unit('b', 'p1', 'heavy', '6,5')];
-  const { state } = play(s, 0, { a: { path: ['3,5', '4,5', '5,5', '5,4'] } });
-  assert.equal(state.units.find((u) => u.id === 'a')!.hex, '5,5');
+  const path = ['3,5', '4,5', '5,5', '5,4'];
+  s.units = [unit('a', 'p0', 'scout', '2,5'), unit('b', 'p1', 'heavy', '6,5', { facing: facingToward('6,5', '5,5') })];
+  assert.deepEqual(engagedBy(s, 'p0', '5,5').map((u) => u.id), ['b']);
+  const r = play(s, 0, { a: { path } });
+  assert.equal(r.state.units.find((u) => u.id === 'a')!.hex, '5,5');
+  assert.ok(r.events.some((e) => e.type === 'halt' && e.reason === 'engaged by B'));
+  // Facing away, b's rear is no barrier: a goes on past it (and draws no free attack leaving its rear).
+  s.units[1].facing = facingToward('6,5', '7,5');
+  assert.deepEqual(engagedBy(s, 'p0', '5,5'), []);
+  const past = play(s, 0, { a: { path } });
+  assert.equal(past.state.units.find((u) => u.id === 'a')!.hex, '5,4');
+  assert.equal(past.events.some((e) => e.type === 'attack'), false);
+});
+
+test('disengaging: leaving an enemy\'s front hexes draws a free attack first', () => {
+  const s = openState();
+  s.units = [unit('a', 'p0', 'heavy', '5,5', { facing: facingToward('5,5', '6,5') }), unit('b', 'p1', 'heavy', '6,5', { facing: facingToward('6,5', '5,5') })];
+  const r = play(s, 0, { a: { path: ['4,5'] } });
+  const free = r.events.find((e): e is AttackEvent => e.type === 'attack')!;
+  assert.deepEqual([free.attacker, free.target, free.free, free.ranged, free.targetHex], ['b', 'a', true, false, '5,5']);
+  assert.equal(free.hits, 3, '6 against 3, front to front');
+  const a = r.state.units.find((u) => u.id === 'a')!;
+  assert.deepEqual([a.hex, a.strength], ['4,5', 3], 'hit, then on its way');
+  assert.ok(r.events.some((e) => e.type === 'morale' && e.unit === 'a'), 'free-attack hits count for morale');
+  assert.deepEqual(previewTurn(s, { a: { path: ['4,5'] } }).events, r.events, 'the preview shows it');
+  // A free attack that destroys the unit stops it where it is.
+  s.units[0] = { ...s.units[0], type: 'scout', strength: 2 };
+  const gone = play(s, 0, { a: { path: ['4,5'] } });
+  assert.equal(gone.state.units.find((u) => u.id === 'a')!.strength, 0);
+  assert.ok(gone.events.some((e) => e.type === 'destroyed' && e.unit === 'a'));
+  assert.equal(gone.events.some((e) => e.type === 'move'), false);
+  // Holding still draws nothing.
+  assert.equal(play(s, 0, {}).events.some((e) => e.type === 'attack'), false);
 });
 
 test('only the active player attacks', () => {
@@ -360,9 +390,11 @@ test('morale: badly damaged units check after the attacks, and disband if they f
 
 test('combat: only the ordered target is attacked, and only if it is in reach', () => {
   const s = openState();
-  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('weak', 'p1', 'scout', '6,5'), unit('strong', 'p1', 'infantry', '4,5')];
+  // Both enemies face away from a, so it can move off freely.
+  s.units = [unit('a', 'p0', 'heavy', '5,5'), unit('weak', 'p1', 'scout', '6,5', { facing: facingToward('6,5', '7,5') }),
+    unit('strong', 'p1', 'infantry', '4,5', { facing: facingToward('4,5', '3,5') })];
   const target = (orders: PlayerOrders) => play(s, 0, orders).events.find((e): e is AttackEvent => e.type === 'attack')!.target;
-  const attacks = (orders: PlayerOrders) => play(s, 0, orders).events.filter((e) => e.type === 'attack').length;
+  const attacks = (orders: PlayerOrders) => play(s, 0, orders).events.filter((e) => e.type === 'attack' && !e.free).length;
   assert.equal(attacks({}), 0, 'no order, no attack');
   assert.equal(target({ a: { path: [], target: 'weak' } }), 'weak');
   assert.equal(target({ a: { path: [], target: 'strong' } }), 'strong');
