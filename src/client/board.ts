@@ -319,7 +319,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     const out: string[] = [];
     out.push(`<svg viewBox="0 0 ${w.toFixed(0)} ${h.toFixed(0)}" width="${(w * zoom).toFixed(0)}" height="${(h * zoom).toFixed(0)}" xmlns="http://www.w3.org/2000/svg">`);
     out.push(`<defs><marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`);
-    const showLabels = zoom >= 0.65;
+    // Terrain icons at every zoom (#64); zoomed out, a little larger in the hex so they stay readable.
+    const iconScale = zoom >= 0.65 ? 0.6 : 0.75;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const hex = `${c},${r}`;
@@ -328,7 +329,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
         const e = elevationAt(hex);
         const type = view.map.terrain[r * cols + c];
         out.push(`<polygon class="hex" data-hex="${hex}" points="${hexPoints(p.x, p.y)}" fill="${type === 'water' ? TERRAIN.water.color : elevationColor(e)}"/>`);
-        if (showLabels) out.push(terrainIcon(type, p.x, p.y + SIZE * 0.1, 0.6));
+        out.push(terrainIcon(type, p.x, p.y + SIZE * 0.1, iconScale));
       }
     }
     // Cliffs: edges where the ground drops 2 or more levels (too steep for most units).
