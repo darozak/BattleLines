@@ -106,17 +106,40 @@ function shareCard(hash: string, s: Sending): string {
         <textarea class="message" rows="2" maxlength="280">${esc(s.message)}</textarea></label>
     </div>
     <div class="row">
-      <button data-share="copy-card" data-major>Copy card</button>
+      <button data-share="copy-card">Copy card</button>
       <button class="secondary" data-share="copy">Copy link</button>
       <a class="button secondary" data-share="email" href="#">Email…</a>
       ${'share' in navigator ? '<button class="secondary" data-share="native">Share…</button>' : ''}
     </div>
     <p class="small share-note">Copy card, then paste it into an email (Gmail and others) or a document: the picture opens
       the game when clicked, with your message under it. Share… sends your message and the link to an app;
-      Copy link copies the link alone.</p>
+      Copy link copies the link alone, as a clickable link.</p>
     <textarea class="linkbox" readonly rows="2" aria-label="The link">${esc(url)}</textarea>
     <p class="small">The link <b>is</b> the game (${url.length} characters). Send all of it.</p>
   </div>`;
+}
+
+/**
+ * Copy formatted content (#51): the way Ctrl+C does, with the copy command and the HTML and text set on the
+ * copy event, which Gmail pastes as formatted; navigator.clipboard.write is the fallback. True if it worked.
+ */
+async function copyRich(html: string, text: string): Promise<boolean> {
+  let copied = false;
+  const onCopy = (ev: ClipboardEvent) => {
+    ev.clipboardData?.setData('text/html', html);
+    ev.clipboardData?.setData('text/plain', text);
+    ev.preventDefault();
+    copied = !!ev.clipboardData;
+  };
+  document.addEventListener('copy', onCopy);
+  try { document.execCommand('copy'); } catch { /* not supported */ } finally { document.removeEventListener('copy', onCopy); }
+  if (copied) return true;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+    return true;
+  } catch {
+    try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+  }
 }
 
 function wireShare(root: HTMLElement, hash: string, s: Sending, onShared?: () => void): void {
@@ -147,32 +170,13 @@ function wireShare(root: HTMLElement, hash: string, s: Sending, onShared?: () =>
           + (msg ? `<p style="font-size:16px;margin:12px 0 6px">${esc(msg).replace(/\n/g, '<br>')}</p>` : '')
           + `<p style="margin:6px 0"><a href="${esc(url)}">Open the game</a></p></div>`;
         const text = `${msg ? `${msg}\n` : ''}${url}`;
-        // #51: copy the way Ctrl+C does (the copy command, with the HTML and text set on the copy event).
-        // Gmail pasted only the text of a copy made with navigator.clipboard.write, so that is the fallback.
-        let copied = false;
-        const onCopy = (ev: ClipboardEvent) => {
-          ev.clipboardData?.setData('text/html', html);
-          ev.clipboardData?.setData('text/plain', text);
-          ev.preventDefault();
-          copied = !!ev.clipboardData;
-        };
-        document.addEventListener('copy', onCopy);
-        try { document.execCommand('copy'); } catch { /* not supported */ } finally { document.removeEventListener('copy', onCopy); }
-        if (!copied) {
-          try {
-            await navigator.clipboard.write([new ClipboardItem({
-              'text/html': new Blob([html], { type: 'text/html' }),
-              'text/plain': new Blob([text], { type: 'text/plain' }),
-            })]);
-            copied = true;
-          } catch { /* not allowed */ }
-        }
+        const copied = await copyRich(html, text);
         btn.textContent = copied ? 'Card copied ✓' : "This browser won't copy the card: use Copy link";
       } else if (kind === 'copy') {
-        try {
-          await navigator.clipboard.writeText(url);
+        // #56: a clickable link for mail and documents (Gmail doesn't link a pasted address), the plain address for chats.
+        if (await copyRich(`<a href="${esc(url)}">${esc(url)}</a>`, url)) {
           btn.textContent = 'Link copied ✓';
-        } catch {
+        } else {
           root.querySelector<HTMLTextAreaElement>('.linkbox')?.select();
           btn.textContent = 'Select and copy the link below';
         }
