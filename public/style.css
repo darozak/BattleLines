@@ -194,6 +194,9 @@ svg .target-mark.on { stroke-width: 4; stroke-dasharray: none; }
 table.info-stats { width: 100%; border-collapse: collapse; margin: 4px 0; text-align: center; }
 table.info-stats th { font-weight: normal; color: var(--muted); font-size: 11px; }
 table.info-stats td { font-weight: bold; }
+/* Terrain boxes (#65) */
+.infobox .info-line { margin: 3px 0; }
+.infobox .terrain-icon { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; }
 .infobox .info-turn { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 4px; }
 .infobox .info-turn div { margin: 2px 0; }
 .maptools .cycle { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }

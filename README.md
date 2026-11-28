@@ -23,7 +23,8 @@ round, scenario and scores are in a slim bar above it, and the **Report** button
    direction once the battle begins. Later players can see where earlier players deployed. The battle
    begins once everyone has deployed.
 3. **Give orders.** Hover over any unit (on a phone, press and hold it) to see its details and what will happen to
-   it this turn. Everything else happens on the map. Click one of your units, or step through them with
+   it this turn. Hover over (or press and hold) woods, hills, villages, roads, rivers and other terrain
+   features to see what they do in battle. Everything else happens on the map. Click one of your units, or step through them with
    ◀ ▶, then:
    - click a highlighted hex to move it there (click another to change your mind, or its own hex to stay);
    - press on its new position and drag left or right to turn it;

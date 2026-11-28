@@ -3,7 +3,7 @@
 // happen to it this turn (#34). Clicking one of your units selects it: a small orders strip gives its
 // move, facing and attack controls, and the map marks where it can go and whom it can attack.
 import { parse, neighbors, distance, arcOf, inBounds, toPixel, facingToward, FACING_ANGLES, FACING_ARROWS, FACING_NAMES } from '../shared/hex.js';
-import { TERRAIN, stepCost, fordsRiver } from '../shared/terrain.js';
+import { TERRAIN, stepCost, fordsRiver, edgeKey, ROAD_STEP_COST, RIVER_CROSSING_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../shared/terrain.js';
 import type {
   AttackEvent, MoraleEvent, Facing, GameEvent, HexKey, PlayerId, PlayerOrders, PlayerView, Terrain, UnitId, VisibleUnit,
 } from '../shared/types.js';
@@ -67,6 +67,8 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   let selected: UnitId | null = null;
   /** The unit whose info box stays open after a click or tap (#34). */
   let pinned: UnitId | null = null;
+  /** A hex whose terrain box a long press opened (#65); the next tap closes it. */
+  let pinnedHex: HexKey | null = null;
   /** The hex of a unit just selected by clicking it: no info box there until the mouse leaves it (#41). */
   let hoverBlock: HexKey | null = null;
   let showReplay = true;
@@ -198,6 +200,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     // Any ordinary tap or click closes a box opened by a click or a long press (#43).
     const wasPinned = pinned;
     pinned = null;
+    pinnedHex = null;
     if (unit && canOrder()) {
       // (#39) Click a highlighted hex to move there by the cheapest route; its starting hex to stay put;
       // its planned position does nothing (press and drag there to turn it).
@@ -548,6 +551,41 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     return `<span class="bar"><span style="width:${pct}%;background:${color}"></span></span>`;
   }
 
+  /**
+   * The info box for a hex's terrain features (#65): what its terrain, roads, rivers, bridges and cliffs
+   * do in battle. Empty for open ground with none of them (no box there).
+   */
+  function terrainHtml(hex: HexKey): string {
+    const type = view.map.terrain[(() => { const { col, row } = parse(hex); return row * view.map.cols + col; })()];
+    const t = TERRAIN[type];
+    const around = neighbors(hex).filter((n) => inBounds(n, view.map.cols, view.map.rows));
+    const roads = new Set(view.map.roads);
+    const rivers = new Set(view.map.rivers);
+    const road = around.some((n) => roads.has(edgeKey(hex, n)));
+    const bridges = around.filter((n) => rivers.has(edgeKey(hex, n)) && roads.has(edgeKey(hex, n))).length;
+    const fords = around.filter((n) => rivers.has(edgeKey(hex, n)) && !roads.has(edgeKey(hex, n))).length;
+    const drop = Math.max(0, ...around.map((n) => Math.abs(elevationAt(n) - elevationAt(hex))));
+    const lines: string[] = [];
+    const half = ROAD_STEP_COST === 0.5 ? '½' : String(ROAD_STEP_COST);
+    const signed = (n: number) => (n < 0 ? `−${-n}` : `+${n}`);
+    if (type === 'water') lines.push('Impassable: no unit can enter a lake. It doesn\'t block sight.');
+    else if (type !== 'open') {
+      lines.push(`<b>Movement:</b> entering costs ${t.cost}${t.cost === 1 ? ', the same as open ground' : ` (open ground costs 1)`}.`);
+      if (t.defense) lines.push(`<b>Cover +${t.defense}:</b> a unit here adds ${t.defense} to its defence against close combat and fire.`);
+      lines.push(t.blocksSight ? '<b>Blocks sight:</b> units can\'t fire through this hex (they can fire into or out of it).' : 'Doesn\'t block sight.');
+    }
+    if (road) lines.push(`<b>Road:</b> a step along the road costs ${half}, whatever the terrain.`);
+    if (bridges) lines.push(`<b>Bridge:</b> crossing the river by the road is a road step: no stop and no extra cost. Close combat across a bridge ${signed(BRIDGE_ATTACK)}.`);
+    if (fords) lines.push(`<b>River</b> on ${fords === 1 ? 'one side' : `${fords} sides`}: a unit must stop at the bank and ford only as the first step of its next move (+${RIVER_CROSSING_COST} movement). Close combat across a river ${signed(RIVER_ATTACK)}; fire isn't affected.`);
+    if (drop >= 2) lines.push(`<b>Cliff</b> on ${around.filter((n) => Math.abs(elevationAt(n) - elevationAt(hex)) >= 2).length === 1 ? 'one side' : 'several sides'}: a step of ${drop} levels up or down, ${drop >= 3 ? 'too steep for any unit' : 'too steep for units that climb only 1 (light troops climb 2)'}.`);
+    if (!lines.length) return '';
+    const e = elevationAt(hex);
+    const name = type === 'open' ? (road ? 'Road' : fords ? 'River' : bridges ? 'Bridge' : 'Cliff') : t.name;
+    return `<div class="info-head"><span class="terrain-icon">${legendIcon(type, 26)}</span><div><b>${esc(name)}</b>${type !== 'open' && (road || fords || bridges) ? `<div class="small">${[road && 'road', bridges && 'bridge', fords && 'river'].filter(Boolean).join(', ')}</div>` : ''}</div></div>
+      ${lines.map((x) => `<div class="info-line">${x}</div>`).join('')}
+      ${type === 'water' ? '' : `<div class="small">Elevation ${e}: climbing costs +${CLIMB_COST} a level; attacking from higher ground +1 a level.</div>`}`;
+  }
+
   /** The info box for a unit: its datasheet in brief, where it stands, and what happens to it this turn. */
   function infoHtml(unit: VisibleUnit): string {
     const ds = view.datasheets[unit.type];
@@ -746,10 +784,10 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <button class="secondary small-btn" data-zoom="in" aria-label="Zoom in">+</button>
       <button class="secondary small-btn" data-zoom="fit">Fit map</button>
       ${!setup ? /* no use during deployment (#62) */ `<span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>` : ''}
-      ${setup /* deployment has its own hint (#63) */ ? `<span class="small hint-inline hint-hover">Hover over a unit for its details${ctx.mode === 'deploy' ? ' · press Place, then click a hex in your starting zone · click a placed unit to take it off' : ''}</span>
-      <span class="small hint-inline hint-touch">Tap a unit for its details${ctx.mode === 'deploy' ? ' · tap Place, then a hex in your starting zone · tap a placed unit to take it off' : ''}</span>`
-    : `<span class="small hint-inline hint-hover">Hover over a unit for its details · click yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
-      <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours, then a hex to move it, drag on it to turn, an enemy to attack</span>`}
+      ${setup /* deployment has its own hint (#63) */ ? `<span class="small hint-inline hint-hover">Hover over a unit or terrain for details${ctx.mode === 'deploy' ? ' · press Place, then click a hex in your starting zone · click a placed unit to take it off' : ''}</span>
+      <span class="small hint-inline hint-touch">Tap a unit for its details, hold on terrain for its effects${ctx.mode === 'deploy' ? ' · tap Place, then a hex in your starting zone · tap a placed unit to take it off' : ''}</span>`
+    : `<span class="small hint-inline hint-hover">Hover over a unit or terrain for details · click yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
+      <span class="small hint-inline hint-touch">Tap a unit for its details, hold on terrain for its effects · tap yours, then a hex to move it, drag on it to turn, an enemy to attack</span>`}
     </div>
     <div class="mapframe">
       <div class="mapwrap" id="mapwrap"></div>
@@ -771,21 +809,28 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
   // The info box (#34): follows the pointer over a unit; a clicked or tapped unit's box stays put.
   let hovered: UnitId | null = null;
   let pointer: { x: number; y: number } | null = null;
+  // Terrain (#65): a hex without a unit shows its features' box after the pointer rests on it briefly
+  // (so sweeping across the map doesn't flicker), or at once after a long press on a touch screen.
+  let hoveredHex: HexKey | null = null;
+  let hexTimer = 0;
   function showInfo(): void {
     const id = hovered ?? pinned;
     const unit = id ? units().find((u) => u.id === id) : undefined;
-    if (!unit) { infobox.hidden = true; return; }
-    infobox.innerHTML = infoHtml(unit);
+    const terrainHex = !unit ? hoveredHex ?? pinnedHex : null;
+    const html = unit ? infoHtml(unit) : terrainHex ? terrainHtml(terrainHex) : '';
+    if (!html) { infobox.hidden = true; return; }
+    infobox.innerHTML = html;
     infobox.hidden = false;
     const f = frame.getBoundingClientRect();
     let x: number; let y: number;
-    if (hovered && pointer) { x = pointer.x - f.left + 18; y = pointer.y - f.top + 18; }
+    const following = (hovered || (!unit && hoveredHex)) && pointer;
+    if (following) { x = pointer!.x - f.left + 18; y = pointer!.y - f.top + 18; }
     else {
-      const poly = wrap.querySelector(`polygon.hex[data-hex="${unit.hex}"]`)?.getBoundingClientRect();
+      const poly = wrap.querySelector(`polygon.hex[data-hex="${unit?.hex ?? terrainHex}"]`)?.getBoundingClientRect();
       x = poly ? poly.right - f.left + 6 : 10; y = poly ? poly.top - f.top : 10;
     }
     const w = infobox.offsetWidth; const h = infobox.offsetHeight;
-    if (x + w > f.width - 6) x = Math.max(6, (hovered && pointer ? pointer.x - f.left - 18 : x - 60) - w);
+    if (x + w > f.width - 6) x = Math.max(6, (following ? pointer!.x - f.left - 18 : x - 60) - w);
     if (y + h > f.height - 6) y = Math.max(6, f.height - h - 6);
     infobox.style.left = `${x}px`;
     infobox.style.top = `${y}px`;
@@ -795,9 +840,15 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (hoverBlock && hex !== hoverBlock) hoverBlock = null;
     const id = hex && hex !== hoverBlock ? units().find((u) => u.hex === hex)?.id ?? null : null;
     pointer = { x: ev.clientX, y: ev.clientY };
-    if (id !== hovered || id) { hovered = id; showInfo(); }
+    const bare = hex && !units().some((u) => u.hex === hex) ? hex : null; // terrain only where no unit stands
+    if (bare !== hoveredHex) {
+      clearTimeout(hexTimer);
+      if (hoveredHex) { hoveredHex = null; if (!id) showInfo(); }
+      if (bare) hexTimer = window.setTimeout(() => { hoveredHex = bare; if (!hovered) showInfo(); }, 350);
+    }
+    if (id !== hovered || id || hoveredHex) { hovered = id; showInfo(); }
   });
-  wrap.addEventListener('mouseleave', () => { hovered = null; showInfo(); });
+  wrap.addEventListener('mouseleave', () => { hovered = null; hoveredHex = null; clearTimeout(hexTimer); showInfo(); });
 
   // Turning (#39): press on the selected unit's planned position and drag left or right; every
   // ROTATE_STEP pixels turns it one hexside (right = clockwise). Works with a mouse or a finger.
@@ -845,13 +896,14 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     if (ev.pointerType !== 'touch') return;
     const hex = (ev.target as Element).closest<SVGElement>('[data-hex]')?.dataset.hex;
     const unit = hex ? units().find((u) => u.hex === hex) : undefined;
-    if (!unit) return;
+    if (!unit && !(hex && terrainHtml(hex))) return; // a unit, or terrain with something to say (#65)
     press = { x: ev.clientX, y: ev.clientY, timer: window.setTimeout(() => {
       press = null;
       if (rotating?.moved) return;
       rotating = null;
       hovered = null;
-      pinned = unit.id;
+      pinned = unit?.id ?? null;
+      pinnedHex = unit ? null : hex ?? null;
       swallowClick = true;
       showInfo();
     }, LONG_PRESS_MS) };
