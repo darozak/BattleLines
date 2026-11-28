@@ -741,7 +741,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
       <span id="zoomlevel" class="small"></span>
       <button class="secondary small-btn" data-zoom="in" aria-label="Zoom in">+</button>
       <button class="secondary small-btn" data-zoom="fit">Fit map</button>
-      <span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>
+      ${ctx.round > 0 ? /* no use during deployment (#62) */ `<span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>` : ''}
       <span class="small hint-inline hint-hover">Hover over a unit for its details · click yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
       <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
     </div>
