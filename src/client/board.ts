@@ -608,7 +608,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     ];
     return `<b>${esc(ctx.gameName)}</b> <span class="sep">·</span> ${round}
       ${sc ? `<span class="sep">·</span> <span class="scenario-name" title="${esc(sc.description)}">${esc(sc.name)}</span>` : ''}
-      <span class="sep">·</span> ${ctx.players.map((p) => `<span class="pl${p.id === ctx.current ? ' to-move' : ''}${eliminated.has(p.id) ? ' out' : ''}" title="${esc(p.army ?? '')}"><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''} ${view.scores[p.id] ?? 0}${p.id === ctx.current ? ' ◀' : ''}</span>`).join(' ')}
+      <span class="sep">·</span> ${ctx.players.map((p) => `<span class="pl${p.id === ctx.current ? ' to-move' : ''}${eliminated.has(p.id) ? ' out' : ''}" title="${esc(p.army ?? '')}"><span class="swatch" style="background:${SIDE_COLORS[p.side]}"></span>${esc(p.name)}${p.id === ctx.me ? ' (you)' : ''}${setup ? '' : ` ${view.scores[p.id] ?? 0}`}${p.id === ctx.current ? ' ◀' : ''}</span>`).join(' ')}
       ${majors.join('')}`;
   }
 
@@ -730,20 +730,25 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
 
   // ---------------------------------------------------------------- page
 
+  /** Turn 0, deployment: leave out what only applies once the battle starts (#62, #63). */
+  const setup = ctx.round === 0 && !view.finished;
+
   app.innerHTML = `
 <div id="banner"></div>
 <div class="gamebar" id="gamebar"></div>
 <div class="game${ctx.mode === 'deploy' ? '' : ' no-side'}">
   <div class="mapcol">
     <div class="maptools">
-      <button class="secondary small-btn" data-reports>Report</button>
+      ${ctx.reports.some((r) => r.events.length) ? '<button class="secondary small-btn" data-reports>Report</button>' : '' /* nothing to report yet (#63) */}
       <button class="secondary small-btn" data-zoom="out" aria-label="Zoom out">−</button>
       <span id="zoomlevel" class="small"></span>
       <button class="secondary small-btn" data-zoom="in" aria-label="Zoom in">+</button>
       <button class="secondary small-btn" data-zoom="fit">Fit map</button>
-      ${ctx.round > 0 ? /* no use during deployment (#62) */ `<span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>` : ''}
-      <span class="small hint-inline hint-hover">Hover over a unit for its details · click yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
-      <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
+      ${!setup ? /* no use during deployment (#62) */ `<span class="cycle"><button class="secondary small-btn" data-cycle="-1" aria-label="Previous unit" title="Previous unit">◀</button><span class="small">your units</span><button class="secondary small-btn" data-cycle="1" aria-label="Next unit" title="Next unit">▶</button></span>` : ''}
+      ${setup /* deployment has its own hint (#63) */ ? `<span class="small hint-inline hint-hover">Hover over a unit for its details${ctx.mode === 'deploy' ? ' · press Place, then click a hex in your starting zone · click a placed unit to take it off' : ''}</span>
+      <span class="small hint-inline hint-touch">Tap a unit for its details${ctx.mode === 'deploy' ? ' · tap Place, then a hex in your starting zone · tap a placed unit to take it off' : ''}</span>`
+    : `<span class="small hint-inline hint-hover">Hover over a unit for its details · click yours, then a hex to move it, drag on it to turn, an enemy to attack</span>
+      <span class="small hint-inline hint-touch">Tap a unit for its details · tap yours, then a hex to move it, drag on it to turn, an enemy to attack</span>`}
     </div>
     <div class="mapframe">
       <div class="mapwrap" id="mapwrap"></div>
@@ -752,7 +757,7 @@ export function mountBoard(app: HTMLElement, ctx: BoardContext): void {
     <div class="legend">${(Object.keys(TERRAIN) as (keyof typeof TERRAIN)[]).map((id) => `<span>${legendIcon(id)}${TERRAIN[id].name}</span>`).join('')}
       <span class="elev-scale">elevation ${ELEVATION_COLORS.slice(0, 5).map((col, i) => `<i style="background:${col}" title="elevation ${i}">${i}</i>`).join('')}</span>
       <span><i class="line-key road-key"></i>road</span><span><i class="line-key river-key"></i>river</span><span><i class="line-key bridge-key"></i>bridge</span>
-      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span><i class="cliff-key"></i>cliff (2+ levels)</span><span>dashed outline = planned move</span></div>
+      <span>◌ objective${view.objectiveOwners.some(Boolean) ? ' (flag: its owner\'s colour)' : ''}</span><span><i class="cliff-key"></i>cliff (2+ levels)</span>${setup ? '' : '<span>dashed outline = planned move</span>'}</div>
   </div>
   <aside class="side" id="side"></aside>
 </div>`;
