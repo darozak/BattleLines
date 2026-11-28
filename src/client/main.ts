@@ -407,11 +407,10 @@ function gameScreen(game: Game, hash: string): void {
 
 function checkNotice(game: Game, me: number): BoardContext['notice'] {
   const check = verifyReplay(game.link, store.get<PackedState>(stateKey(game.link.id, me)));
-  return check === 'verified'
-    ? { kind: 'ok', html: '✓ Checked: the other players\' turns replay exactly from the position you sent.' }
-    : check === 'mismatch'
-      ? { kind: 'warn', html: '⚠ This position does not match a replay of the other players\' turns from the position you sent. The link may have been altered.' }
-      : undefined;
+  // Only a mismatch is worth a banner; a link that replays exactly needs no notice (#66).
+  return check === 'mismatch'
+    ? { kind: 'warn', html: '⚠ This position does not match a replay of the other players\' turns from the position you sent. The link may have been altered.' }
+    : undefined;
 }
 
 /** Turn 0: the current player picks an army and places units. */
