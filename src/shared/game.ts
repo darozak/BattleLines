@@ -168,7 +168,7 @@ export function createGame(g: NewGame): Game {
   const link: GameLink = {
     v: LINK_VERSION,
     id: toB64u(globalThis.crypto.getRandomValues(new Uint8Array(9))),
-    name: g.gameName.trim() || randomBattleName(), // #54
+    name: g.gameName.trim() || randomBattleName(g.era), // #54, #55
     era: g.era,
     size: g.size,
     points: g.points,

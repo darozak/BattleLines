@@ -13,7 +13,7 @@ import {
   type Game, type GameLink, type PackedState, type TurnRecord,
 } from '../shared/game.js';
 import { LinkError } from '../shared/link.js';
-import { randomBattleName } from '../shared/names.js';
+import { randomBattleName, randomPlayerName } from '../shared/names.js';
 import type { GameEvent, GameState } from '../shared/types.js';
 
 const app = document.getElementById('app')!;
@@ -255,7 +255,7 @@ function homeScreen(): void {
       then send the new link to the next player by email or message.</p></section>
     <section class="card"><h2>Start a new game</h2>
       <form id="create" class="form">
-        <label>Game name <span class="name-row"><input name="gameName" maxlength="60" value="${esc(randomBattleName())}">
+        <label>Game name <span class="name-row"><input name="gameName" maxlength="60" value="${esc(randomBattleName(Object.values(ERAS)[0].id))}">
           <button type="button" class="secondary small-btn" id="new-name" title="Another name" aria-label="Another name">🎲</button></span></label>
         <label>Era <select name="era">${eraOptions}</select></label>
         <p class="hint" id="era-about"></p>
@@ -279,24 +279,45 @@ function homeScreen(): void {
 `);
 
   const form = document.getElementById('create') as HTMLFormElement;
-  document.getElementById('new-name')!.onclick = () => { (form.elements.namedItem('gameName') as HTMLInputElement).value = randomBattleName(); };
+  // Names (#54, #55): random and era-appropriate. A box the player has typed in keeps its text when the era
+  // changes; the others get new names. 🎲 draws another name for its box.
+  const gameName = form.elements.namedItem('gameName') as HTMLInputElement;
+  form.addEventListener('input', (ev) => { const t = ev.target as HTMLInputElement; if (t.name === 'gameName' || t.name === 'player') t.dataset.typed = '1'; });
+  document.getElementById('new-name')!.onclick = () => { gameName.value = randomBattleName(eraSel.value); delete gameName.dataset.typed; };
   const eraSel = form.elements.namedItem('era') as HTMLSelectElement;
   const countSel = form.elements.namedItem('count') as HTMLSelectElement;
   const namesDiv = document.getElementById('names')!;
   const about = document.getElementById('era-about')!;
-  const fillNames = () => {
-    const typed = [...namesDiv.querySelectorAll('input')].map((i) => i.value);
-    namesDiv.innerHTML = Array.from({ length: Number(countSel.value) }, (_, i) =>
-      `<label>Player name ${i + 1}${i === 0 ? ' (you)' : ''}
-        <input name="player" maxlength="30" placeholder="Player ${i + 1}" value="${esc(typed[i] ?? `Player ${i + 1}`)}"></label>`).join(''); // defaults (#48)
+  /** Player name boxes for the chosen count. A new era redraws the names nobody typed; otherwise they stay. */
+  const fillNames = (newEra = false) => {
+    const before = [...namesDiv.querySelectorAll<HTMLInputElement>('input')];
+    const names: string[] = [];
+    const typed: boolean[] = [];
+    for (let i = 0; i < Number(countSel.value); i++) {
+      const keep = before[i] && (before[i].dataset.typed || !newEra) ? before[i] : undefined;
+      names.push(keep ? keep.value : randomPlayerName(eraSel.value, [...names, ...before.filter((b) => b.dataset.typed).map((b) => b.value)]));
+      typed.push(!!keep?.dataset.typed);
+    }
+    namesDiv.innerHTML = names.map((n, i) =>
+      `<label>Player name ${i + 1}${i === 0 ? ' (you)' : ''}<span class="name-row">
+        <input name="player" maxlength="30" placeholder="Player ${i + 1}" value="${esc(n)}"${typed[i] ? ' data-typed="1"' : ''}>
+        <button type="button" class="secondary small-btn" data-new-player="${i}" title="Another name" aria-label="Another name">🎲</button></span></label>`).join('');
   };
+  namesDiv.addEventListener('click', (ev) => {
+    const i = (ev.target as Element).closest<HTMLElement>('[data-new-player]')?.dataset.newPlayer;
+    if (i === undefined) return;
+    const inputs = [...namesDiv.querySelectorAll<HTMLInputElement>('input')];
+    inputs[Number(i)].value = randomPlayerName(eraSel.value, inputs.filter((_, k) => k !== Number(i)).map((x) => x.value));
+    delete inputs[Number(i)].dataset.typed;
+  });
   const fillAbout = () => {
     const era = ERAS[eraSel.value];
     about.textContent = `${era.description} Armies: ${era.armies.map((a) => a.name).join(', ')}. Each player picks a different army.`;
     const keep = Number(countSel.value) || MIN_PLAYERS;
     countSel.innerHTML = Array.from({ length: maxPlayers(era) - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i)
       .map((n) => `<option value="${n}" ${n === Math.min(keep, maxPlayers(era)) ? 'selected' : ''}>${n}</option>`).join('');
-    fillNames();
+    if (!gameName.dataset.typed) gameName.value = randomBattleName(era.id);
+    fillNames(true);
   };
   // Scenario, objectives and rounds (#37): defaults follow the map size.
   const sizeSel = form.elements.namedItem('size') as HTMLSelectElement;
@@ -318,7 +339,7 @@ function homeScreen(): void {
   fillScenario();
   fillSizeDefaults();
   eraSel.onchange = fillAbout;
-  countSel.onchange = fillNames;
+  countSel.onchange = () => fillNames();
   fillAbout();
   formAction(form, async (data) => {
     const game = createGame({

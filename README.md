@@ -15,7 +15,7 @@ at the top of the page, so you never need to scroll to find it. The map has the 
 round, scenario and scores are in a slim bar above it, and the **Report** button shows what has happened.
 
 1. **Set up.** Open the site and choose the era, the map size, the point limit, the scenario, the
-   number of rounds and the number of players, and name the players. Every choice starts with a sensible default (a random battle name such as "Siege of Raven's Ford", players "Player 1", "Player 2"…; 🎲 draws another name), so you can press Create game straight away. The game puts the players in a random order.
+   number of rounds and the number of players, and name the players. Every choice starts with a sensible default, including random names that suit the era: battles such as "Combat of Beaumont-le-Val" or "Assault on Hill 213", and commanders such as "Colonel Ashby" or "Captain Sokolov" (🎲 draws another), so you can press Create game straight away. The game puts the players in a random order.
 2. **Deploy (turn 0).** Each player in turn picks one of the era's armies (no two players can pick the
    same one), then chooses units from it and places them in their starting zone, up to the point limit,
    and passes the link on. Once they have picked an army, **Deploy army for me** draws a random set of its
@@ -120,7 +120,7 @@ pull requests are tested by `.github/workflows/tests.yml`. See [AD-03](Procedure
 - `src/shared/`: everything that defines the game, used by the browser and the tests.
   - `engine.ts`: the rules engine (pure functions). Resolves a player's turn.
   - `setup.ts`: eras, armies and unit datasheets (placeholders), map sizes, point limits, starting zones, map generation, and turn 0 (deployment).
-  - `hex.ts`: hex maths and facing. `terrain.ts`: terrain table. `names.ts`: random battle names.
+  - `hex.ts`: hex maths and facing. `terrain.ts`: terrain table. `names.ts`: random battle and commander names for each era.
   - `link.ts`: the link encoding (compression, base64url).
   - `game.ts`: set up a game, deploy, end a turn, read a link, check the other players' turns by replay.
   - `types.ts`: data shapes.
