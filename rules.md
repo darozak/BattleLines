@@ -111,7 +111,8 @@ strike back on your turn; they act on their own turns.
 Roads and rivers are lines on the map, not terrain: roads run between hex centres and rivers along hex
 edges. A road never turns sharply: it leaves a hex straight on or bent by one hexside, never through a
 hexside next to the one it came in by (roads can meet at any angle at a junction). A river only ever flows
-downhill or across level ground: each stretch lies at the height of its lower bank. Every hex also has an
+downhill or across level ground: each stretch lies at the height of its lower bank. A river can run into a
+lake and out again, but never through it. Every hex also has an
 **elevation**, shown by its colour, from green lowland to brown high ground.
 
 ## 5. Facing

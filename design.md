@@ -96,7 +96,8 @@ Everything is after `#`, which browsers never send to the web server, so the hos
     river takes a level or lower stretch whenever it can, and where a hill would make it rise it cuts its
     bed (the lower bank comes down to the river's level). Sometimes a tributary joins it from the east or
     west, traced upstream from the junction and only ever climbing or level: rarely on a small map, at
-    most once on any map.
+    most once on any map. Lakes are placed after the river; any stretch with a lake on either side is then
+    dropped, so a river runs into a lake and out again but never through it or along its shore (#60).
   - **Bridges** are where a road crosses a river.
   - The map stores both as pairs of adjacent hexes (`roads`, `rivers`); a pair in both lists is a bridge.
 

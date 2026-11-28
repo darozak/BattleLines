@@ -543,7 +543,10 @@ test('terrain: rivers along hex edges, branching roads between hex centres, brid
           while (queue.length) for (const n of neighbors(queue.pop()!, m.cols, m.rows)) if (set.has(n) && !seen.has(n)) { seen.add(n); queue.push(n); }
           return seen;
         };
-        const fromNorth = linked([...riverside].filter((h) => h.endsWith(',0')), riverside);
+        // A lake on its course is part of it: the river runs in and out again, not through (#60).
+        for (const [a, b] of pairs(m.rivers)) assert.ok(![a, b].some((h) => all('water').includes(h)), `${label}: no river beside a lake (${a}|${b})`);
+        const course = new Set([...riverside, ...all('water')]);
+        const fromNorth = linked([...riverside].filter((h) => h.endsWith(',0')), course);
         assert.ok(fromNorth.size > 0, `${label}: river starts at the north edge`);
         assert.ok([...fromNorth].some((h) => Number(h.split(',')[1]) >= m.rows - 2), `${label}: river reaches the south edge`);
         // Roads link west to east and north to south.

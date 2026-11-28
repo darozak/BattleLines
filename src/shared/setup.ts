@@ -228,8 +228,8 @@ export function buildMap(era: Era, size: MapSize, seed: number, protectedHexes: 
 
   // ---- rivers: one river crosses the map along hex edges, downhill or level, and now and then a
   // tributary joins it (#59): rarely on a small map, at most once on any map.
-  const { edges: rivers, courses } = riverNetwork(cols, rows, rng, rng.next() < Math.min(0.5, 0.15 * scale) ? 1 : 0, ground);
-  const riverside = [...new Set(rivers.flatMap((k) => k.split('|')))];
+  const { edges: riverEdges, courses } = riverNetwork(cols, rows, rng, rng.next() < Math.min(0.5, 0.15 * scale) ? 1 : 0, ground);
+  const riverside = [...new Set(riverEdges.flatMap((k) => k.split('|')))];
 
   // ---- terrain clusters (marshes grow beside the rivers)
   for (const [type, clusters, hexes] of era.terrain) {
@@ -254,6 +254,11 @@ export function buildMap(era: Era, size: MapSize, seed: number, protectedHexes: 
   for (const h of hearts) set(h, 'dense_forest');
   // Nobody should start in a lake or have an objective in one.
   for (const h of protectedHexes) if (TERRAIN[at(h)].impassable) set(h, 'open');
+  // A river runs into a lake and out again, but never through it or along its shore (#60): drop every
+  // stretch with a lake on either side, so the river ends where it meets the lake and starts again where it leaves.
+  const dry = (k: string) => k.split('|').every((h) => at(h) !== 'water');
+  const rivers = riverEdges.filter(dry);
+  for (const course of courses) course.splice(0, course.length, ...course.filter(([a, b]) => dry(edgeKey(a, b))));
 
   // ---- roads: meandering lines from hex centre to hex centre, branching to villages and ruins
   const roads = new Set<string>();
