@@ -84,7 +84,9 @@ Everything is after `#`, which browsers never send to the web server, so the hos
 
 - **Roads, rivers and bridges are lines**, not terrain (their effects on movement and combat are in rules.md):
   - **Roads** join hex centres: a meandering west–east and north–south road, with branches to villages, ruins
-    and other points.
+    and other points. A road never turns sharply (#57): it never leaves a hex through a face next to the one
+    it came in by, and a hex where exactly two segments meet is never a 60° bend. Three or more segments
+    make a junction, at any angle. A road that runs into a dead end backs out and tries another way.
   - **Rivers** run along hex edges: a meandering river from the north edge to the south edge, with branching
     tributaries.
   - **Bridges** are where a road crosses a river.

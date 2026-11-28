@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
 import { TERRAIN, edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
-import { SCENARIOS, HILL_TARGET, FLAG_POINTS, flagHex, createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets } from '../src/shared/setup.js';
+import { SCENARIOS, HILL_TARGET, FLAG_POINTS, flagHex, createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets, generateMap } from '../src/shared/setup.js';
 import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, engagedBy, ARC_BONUS, canFireAt, pinnedBy, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
 import type { GameEvent, AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
@@ -592,6 +592,30 @@ test('setup: each era has its own terrain and armies, and unit types are unique 
   assert.equal(nap.phase, 'deploy');
   assert.equal(nap.units.length, 0);
   assert.deepEqual([nap.map.cols, nap.map.rows], [24, 18]);
+});
+
+test('map: a road never turns sharply, leaving a hex through a face next to the one it came in by (#57)', () => {
+  // Roads are laid as paths; generateMap keeps no record of which segments belong to one path, so
+  // follow every hex where exactly two segments meet (a bend, not a junction) and check its angle.
+  let bends = 0;
+  for (const size of Object.values(MAP_SIZES)) {
+    for (const era of Object.keys(ERAS)) {
+      for (let seed = 1; seed <= 15; seed++) {
+        const m = generateMap(ERAS[era], size, seed * 7919, []);
+        const links = new Map<string, string[]>();
+        for (const k of m.roads) {
+          const [a, b] = k.split('|');
+          links.set(a, [...(links.get(a) ?? []), b]); links.set(b, [...(links.get(b) ?? []), a]);
+        }
+        for (const [h, ends] of links) {
+          if (ends.length !== 2) continue;
+          bends++;
+          assert.notEqual(distance(ends[0], ends[1]), 1, `${size.id} ${era} seed ${seed}: sharp turn at ${h}`);
+        }
+      }
+    }
+  }
+  assert.ok(bends > 500, 'checked plenty of road');
 });
 
 test('setup: starting zones are on separate edges and never overlap', () => {

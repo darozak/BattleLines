@@ -5,7 +5,7 @@
 // Browsers never send the fragment to the web server, so the host never sees games.
 
 /** Bump when the link format changes. */
-export const LINK_VERSION = 14; // 3: no dice (#21); 4: elevation (#22); 5: eras and deployment (#7); 6: friendly pass-through (#23); 7: terrain (#24); 8: morale (#27); 9: ranged attacks (#28); 10: movement costs (#29); 11: attacks only on orders (#31); 12: only a facing enemy stops fire (#32); 13: engaging and disengaging (#33); 14: scenarios (#37)
+export const LINK_VERSION = 15; // 3: no dice (#21); 4: elevation (#22); 5: eras and deployment (#7); 6: friendly pass-through (#23); 7: terrain (#24); 8: morale (#27); 9: ranged attacks (#28); 10: movement costs (#29); 11: attacks only on orders (#31); 12: only a facing enemy stops fire (#32); 13: engaging and disengaging (#33); 14: scenarios (#37); 15: no sharp road turns (#57)
 
 export class LinkError extends Error {}
 

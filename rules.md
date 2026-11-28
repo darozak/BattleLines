@@ -6,7 +6,7 @@ dice: the page shows exactly what your orders will do before you end your turn. 
 the game as it plays on the [live site](https://darozak.github.io/BattleLines/).
 
 <!-- generated:version -->
-These rules are version **14**, the same as the game's link version: a link from another version won't open.
+These rules are version **15**, the same as the game's link version: a link from another version won't open.
 <!-- /generated -->
 
 The numbers in these rules are placeholders while the game is being playtested, and will change.
@@ -109,7 +109,9 @@ strike back on your turn; they act on their own turns.
 <!-- /generated -->
 
 Roads and rivers are lines on the map, not terrain: roads run between hex centres and rivers along hex
-edges. Every hex also has an **elevation** (the number shown in it).
+edges. A road never turns sharply: it leaves a hex straight on or bent by one hexside, never through a
+hexside next to the one it came in by (roads can meet at any angle at a junction). Every hex also has an
+**elevation**, shown by its colour, from green lowland to brown high ground.
 
 ## 5. Facing
 

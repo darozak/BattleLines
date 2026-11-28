@@ -246,13 +246,31 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
   // ---- roads: meandering lines from hex centre to hex centre, branching to villages and ruins
   const roads = new Set<string>();
   const onRoad: HexKey[] = [];
-  /** Wander from `from` towards `to`, avoiding lakes; returns the hexes visited. */
+  /** The hexes the roads laid so far run to from `h`. */
+  const linked = (h: HexKey) => neighbors(h, cols, rows).filter((n) => roads.has(edgeKey(h, n)));
+  /**
+   * No sharp turns (#57): a road never leaves a hex through a face next to the one it came in by, so it
+   * goes straight on or bends by one face. That holds where one road ends and another begins too: a hex
+   * with exactly two segments is a bend and must not be sharp. (Three or more make a junction, where
+   * roads may meet at any angle.)
+   */
+  const sharp = (ends: HexKey[]) => ends.length === 2 && distance(ends[0], ends[1]) === 1;
+  const fine = (cur: HexKey, n: HexKey, prev: HexKey | undefined) =>
+    !sharp([...new Set([...linked(cur), ...(prev ? [prev] : []), n])]) && !sharp([...new Set([...linked(n), cur])]);
+  /** Wander from `from` towards `to`, avoiding lakes and sharp turns; returns the hexes visited. */
   const wander = (from: HexKey, to: HexKey, maxSteps: number): HexKey[] => {
     const path = [from];
+    const dead = new Set<HexKey>(); // hexes that led nowhere: back out of them and don't go back
     let cur = from;
     for (let i = 0; i < maxSteps && cur !== to; i++) {
-      const options = neighbors(cur, cols, rows).filter((n) => !TERRAIN[at(n)].impassable && !path.includes(n));
-      if (!options.length) break;
+      const prev = path.length > 1 ? path[path.length - 2] : undefined;
+      const options = neighbors(cur, cols, rows).filter((n) => !TERRAIN[at(n)].impassable && !path.includes(n) && !dead.has(n) && fine(cur, n, prev));
+      if (!options.length) {
+        if (path.length === 1) break;
+        dead.add(path.pop()!);
+        cur = path[path.length - 1];
+        continue;
+      }
       // One random draw per option, then sort: never draw inside a sort comparator, or the number of
       // draws depends on the JavaScript engine's sort and different browsers would build different maps.
       const scored = options.map((n) => ({ n, score: distance(n, to) + rng.next() * 1.6 }));
