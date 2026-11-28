@@ -247,3 +247,6 @@ dialog.bl-dialog::backdrop { background: rgba(30, 28, 20, .45); }
 svg .ticon { pointer-events: none; }
 .legend .legend-icon { flex: none; }
 .legend .elev-scale i { width: 18px; height: 16px; font: bold 10px sans-serif; font-style: normal; color: #3b3a2f; text-align: center; line-height: 16px; border: 1px solid #0002; margin-left: 2px; }
+/* Game name with a button for another random name (#54) */
+.name-row { display: flex; gap: 6px; align-items: center; }
+.name-row input { flex: 1; }

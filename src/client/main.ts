@@ -13,6 +13,7 @@ import {
   type Game, type GameLink, type PackedState, type TurnRecord,
 } from '../shared/game.js';
 import { LinkError } from '../shared/link.js';
+import { randomBattleName } from '../shared/names.js';
 import type { GameEvent, GameState } from '../shared/types.js';
 
 const app = document.getElementById('app')!;
@@ -254,7 +255,8 @@ function homeScreen(): void {
       then send the new link to the next player by email or message.</p></section>
     <section class="card"><h2>Start a new game</h2>
       <form id="create" class="form">
-        <label>Game name <input name="gameName" maxlength="60" placeholder="Battle of the Crossroads"></label>
+        <label>Game name <span class="name-row"><input name="gameName" maxlength="60" value="${esc(randomBattleName())}">
+          <button type="button" class="secondary small-btn" id="new-name" title="Another name" aria-label="Another name">🎲</button></span></label>
         <label>Era <select name="era">${eraOptions}</select></label>
         <p class="hint" id="era-about"></p>
         <label>Map size <select name="size">${sizeOptions}</select></label>
@@ -277,6 +279,7 @@ function homeScreen(): void {
 `);
 
   const form = document.getElementById('create') as HTMLFormElement;
+  document.getElementById('new-name')!.onclick = () => { (form.elements.namedItem('gameName') as HTMLInputElement).value = randomBattleName(); };
   const eraSel = form.elements.namedItem('era') as HTMLSelectElement;
   const countSel = form.elements.namedItem('count') as HTMLSelectElement;
   const namesDiv = document.getElementById('names')!;

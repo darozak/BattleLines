@@ -4,6 +4,7 @@ import {
   createGame, endTurn, deploy, readGame, encodeGame, verifyReplay, packState, turnsSince, linkLabel, type Game,
 } from '../src/shared/game.js';
 import { ERAS, zoneOf } from '../src/shared/setup.js';
+import { randomBattleName } from '../src/shared/names.js';
 import { encodeFragment, fromB64u, toB64u, LinkError } from '../src/shared/link.js';
 import { neighbors } from '../src/shared/hex.js';
 import { terrainAt, elevationAt } from '../src/shared/terrain.js';
@@ -182,4 +183,15 @@ test('scenarios travel in the link: scenario, rounds and objectives are kept (#3
   assert.deepEqual([plain.state.scenario, plain.state.turnLimit], ['hold', 10], 'defaults: Hold the Field, the map size\'s rounds');
   assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'], scenario: 'nope' }), /scenario/);
   assert.throws(() => createGame({ gameName: 'x', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'], rounds: 7 }), /rounds/);
+});
+
+test('games get a random battle name when none is given (#54)', () => {
+  const names = Array.from({ length: 300 }, () => randomBattleName());
+  assert.ok(new Set(names).size > 250, 'a wide range of names');
+  for (const n of names) assert.match(n, /^(Battle of|Siege of|Clash at|Stand at|Struggle for|Defence of|Assault on|Skirmish at|Fight at|Last Stand at|Storming of|Retreat from|Raid on|Holding of) [A-Z]/);
+  assert.ok(!names.some((n) => n.includes("s's ")), 'possessives read naturally');
+  const g = createGame({ gameName: '  ', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'] });
+  assert.notEqual(g.link.name, 'Untitled battle');
+  assert.match(g.link.name, / /);
+  assert.equal(createGame({ gameName: 'My battle', era: 'ww2', size: 'small', points: 150, players: ['A', 'B'] }).link.name, 'My battle');
 });

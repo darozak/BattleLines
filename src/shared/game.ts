@@ -3,6 +3,7 @@
 // Nothing is hidden: every player sees the whole battlefield.
 import { createSetupState, resolveDeployment, ERAS, MAP_SIZES, POINT_LIMITS, MIN_PLAYERS, maxPlayers, SCENARIOS, ROUND_OPTIONS, OBJECTIVE_OPTIONS, type Deployment } from './setup.js';
 import { resolvePlayerTurn } from './engine.js';
+import { randomBattleName } from './names.js';
 import { decodeFragment, encodeFragment, LinkError, LINK_VERSION, sha256, toB64u } from './link.js';
 import type { Facing, GameEvent, GameResult, GameState, HexKey, PlayerOrders } from './types.js';
 
@@ -167,7 +168,7 @@ export function createGame(g: NewGame): Game {
   const link: GameLink = {
     v: LINK_VERSION,
     id: toB64u(globalThis.crypto.getRandomValues(new Uint8Array(9))),
-    name: g.gameName.trim() || 'Untitled battle',
+    name: g.gameName.trim() || randomBattleName(), // #54
     era: g.era,
     size: g.size,
     points: g.points,
