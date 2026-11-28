@@ -55,8 +55,8 @@ round, scenario and scores are in a slim bar above it, and the **Report** button
   dense forest, hills, marshes, ruins (and villages in the Napoleonic era) and lakes, each affecting
   movement, sight and cover. Marshes and woods are slow going, and climbing costs extra. On the map an
   icon shows each hex's terrain, and its colour shows its height, from green lowland to brown high ground.
-- **Roads, rivers and bridges** are lines, not hexes. Roads meander and branch between hex centres, with no sharp turns:
-  following one doubles a unit's speed whatever the ground. Rivers meander and branch along hex edges:
+- **Roads, rivers and bridges** are lines, not hexes. Roads run mostly straight and branch between hex centres, with no sharp turns:
+  following one doubles a unit's speed whatever the ground. A river crosses the map along hex edges, always downhill or level, sometimes with a tributary:
   troops must stop at a river before crossing, and attacking across it is hard. Where a road crosses a
   river there is a bridge.
 - **Elevation**: every hex has a height. Most units can climb or descend only one level per step

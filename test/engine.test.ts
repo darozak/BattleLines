@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { neighbors, distance, line, label, facingToward, arcOf, FACING_NAMES, inBounds } from '../src/shared/hex.js';
 import { TERRAIN, edgeKey, stepCost, hasBridge, RIVER_CROSSING_COST, ROAD_STEP_COST, CLIMB_COST, RIVER_ATTACK, BRIDGE_ATTACK } from '../src/shared/terrain.js';
-import { SCENARIOS, HILL_TARGET, FLAG_POINTS, flagHex, createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets, generateMap } from '../src/shared/setup.js';
+import { SCENARIOS, HILL_TARGET, FLAG_POINTS, flagHex, createSetupState, resolveDeployment, validateDeployment, startingZone, zoneOf, ERAS, MAP_SIZES, eraDatasheets, generateMap, buildMap } from '../src/shared/setup.js';
 import { resolvePlayerTurn, validateOrders, boardView, canSee, combatTally, previewTurn, attackOptions, BASE_DEFENCE, FIRE_DEFENCE, engagedBy, ARC_BONUS, canFireAt, pinnedBy, moraleTally, mustCheckMorale, mainBody } from '../src/shared/engine.js';
 import type { GameEvent, AttackEvent, MoraleEvent, Datasheet, GameState, HexKey, PlayerOrders, Unit } from '../src/shared/types.js';
 
@@ -594,10 +594,10 @@ test('setup: each era has its own terrain and armies, and unit types are unique 
   assert.deepEqual([nap.map.cols, nap.map.rows], [24, 18]);
 });
 
-test('map: a road never turns sharply, leaving a hex through a face next to the one it came in by (#57)', () => {
+test('map: a road never turns sharply, leaving a hex through a face next to the one it came in by, and turns rarely (#57)', () => {
   // Roads are laid as paths; generateMap keeps no record of which segments belong to one path, so
   // follow every hex where exactly two segments meet (a bend, not a junction) and check its angle.
-  let bends = 0;
+  let bends = 0, turns = 0;
   for (const size of Object.values(MAP_SIZES)) {
     for (const era of Object.keys(ERAS)) {
       for (let seed = 1; seed <= 15; seed++) {
@@ -611,11 +611,50 @@ test('map: a road never turns sharply, leaving a hex through a face next to the 
           if (ends.length !== 2) continue;
           bends++;
           assert.notEqual(distance(ends[0], ends[1]), 1, `${size.id} ${era} seed ${seed}: sharp turn at ${h}`);
+          const around = neighbors(h);
+          if (Math.abs(around.indexOf(ends[0]) - around.indexOf(ends[1])) !== 3) turns++;
         }
       }
     }
   }
   assert.ok(bends > 500, 'checked plenty of road');
+  // Roads mostly run straight: a turn is rare (#57).
+  assert.ok(turns / bends < 0.2, `${turns} turns in ${bends} hexes of road`);
+});
+
+test('map: one river crosses the map on a steady course and branches only now and then (#59)', () => {
+  for (const size of Object.values(MAP_SIZES)) {
+    for (let seed = 1; seed <= 20; seed++) {
+      const m = generateMap(ERAS.napoleonic, size, seed * 7919, []);
+      // Crossing north to south along hex edges takes about two edges a row; a steady river stays near
+      // that, and at most two branches each run to the east or west edge (two edges a column, plus some slant).
+      assert.ok(m.rivers.length <= size.rows * 2.6 + size.cols * 4, `${size.id} seed ${seed}: ${m.rivers.length} river edges`);
+    }
+  }
+});
+
+test('map: rivers flow only downhill or across level ground, never up (#59)', () => {
+  let tributaries = 0, maps = 0;
+  for (const size of Object.values(MAP_SIZES)) {
+    for (const era of Object.keys(ERAS)) {
+      for (let seed = 1; seed <= 20; seed++) {
+        const { map: m, courses } = buildMap(ERAS[era], size, seed * 7919, []);
+        maps++; tributaries += courses.length - 1;
+        assert.ok(courses.length >= 1 && courses.length <= 2, 'one river, at most one tributary');
+        const height = (h: string) => { const [c, r] = h.split(',').map(Number); return m.terrain[r * m.cols + c] === 'water' ? Infinity : m.elevation[r * m.cols + c]; };
+        for (const course of courses) {
+          let level = Infinity;
+          for (const [a, b] of course) {
+            const here = Math.min(height(a), height(b));
+            if (here === Infinity) continue; // between two lake hexes
+            assert.ok(here <= level, `${size.id} ${era} seed ${seed}: the river rises from ${level} to ${here} at ${a}|${b}`);
+            level = here;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(tributaries > 0 && tributaries < maps / 2, `tributaries now and then: ${tributaries} in ${maps} maps`);
 });
 
 test('setup: starting zones are on separate edges and never overlap', () => {

@@ -204,6 +204,11 @@ const centre = (size: MapSize) => key(Math.floor(size.cols / 2), Math.floor(size
 // ---------------------------------------------------------------- map generation
 
 export function generateMap(era: Era, size: MapSize, seed: number, protectedHexes: HexKey[]): GameMap {
+  return buildMap(era, size, seed, protectedHexes).map;
+}
+
+/** The map, and each river's stretches from source to mouth (for tests). */
+export function buildMap(era: Era, size: MapSize, seed: number, protectedHexes: HexKey[]): { map: GameMap; courses: [HexKey, HexKey][][] } {
   const { cols, rows } = size;
   const rng = createRng(seed);
   const terrain: TerrainType[] = new Array(cols * rows).fill('open');
@@ -215,8 +220,15 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
   const inMap = (h: HexKey) => inBounds(h, cols, rows);
   const scale = (cols * rows) / (16 * 12);
 
-  // ---- rivers: meandering lines along hex edges, with branching tributaries
-  const rivers = riverNetwork(cols, rows, rng, Math.max(1, Math.round(scale * 0.7)));
+  // ---- the lie of the land (PLACEHOLDER shape), worked out first so the river can follow it: a few
+  // rises, each sloping down one level every two hexes, so neighbouring hexes mostly differ by at most 1.
+  const rises = Math.max(2, Math.round((cols * rows) / 60));
+  const peaks = Array.from({ length: rises }, () => ({ hex: key(rng.int(cols), rng.int(rows)), height: 2 + rng.int(2) }));
+  const ground = (h: HexKey) => Math.max(0, ...peaks.map((p) => p.height - Math.floor(distance(h, p.hex) / 2)));
+
+  // ---- rivers: one river crosses the map along hex edges, downhill or level, and now and then a
+  // tributary joins it (#59): rarely on a small map, at most once on any map.
+  const { edges: rivers, courses } = riverNetwork(cols, rows, rng, rng.next() < Math.min(0.5, 0.15 * scale) ? 1 : 0, ground);
   const riverside = [...new Set(rivers.flatMap((k) => k.split('|')))];
 
   // ---- terrain clusters (marshes grow beside the rivers)
@@ -257,14 +269,23 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
   const sharp = (ends: HexKey[]) => ends.length === 2 && distance(ends[0], ends[1]) === 1;
   const fine = (cur: HexKey, n: HexKey, prev: HexKey | undefined) =>
     !sharp([...new Set([...linked(cur), ...(prev ? [prev] : []), n])]) && !sharp([...new Set([...linked(n), cur])]);
-  /** Wander from `from` towards `to`, avoiding lakes and sharp turns; returns the hexes visited. */
-  const wander = (from: HexKey, to: HexKey, maxSteps: number): HexKey[] => {
+  /**
+   * Find a way from `from` to `to`, avoiding lakes and sharp turns; returns the hexes visited. A road
+   * never moves away from where it's going, so it can't loop back on itself, and it keeps straight on
+   * unless a turn gets it there sooner, so turns are few (#57). A branch (`join` false) doesn't run
+   * into another road on the way.
+   */
+  const wander = (from: HexKey, to: HexKey, maxSteps: number, join: boolean): HexKey[] => {
     const path = [from];
     const dead = new Set<HexKey>(); // hexes that led nowhere: back out of them and don't go back
     let cur = from;
     for (let i = 0; i < maxSteps && cur !== to; i++) {
       const prev = path.length > 1 ? path[path.length - 2] : undefined;
-      const options = neighbors(cur, cols, rows).filter((n) => !TERRAIN[at(n)].impassable && !path.includes(n) && !dead.has(n) && fine(cur, n, prev));
+      // Straight on is the neighbour opposite the one the road came in from (neighbors() lists the six
+      // directions in order round the hex, so the opposite one is three along).
+      const ahead = prev ? neighbors(cur)[(neighbors(cur).indexOf(prev) + 3) % 6] : undefined;
+      const options = neighbors(cur, cols, rows).filter((n) => !TERRAIN[at(n)].impassable && !path.includes(n) && !dead.has(n) && fine(cur, n, prev)
+        && distance(n, to) <= distance(cur, to) && (join || n === to || !onRoad.includes(n)));
       if (!options.length) {
         if (path.length === 1) break;
         dead.add(path.pop()!);
@@ -273,7 +294,10 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
       }
       // One random draw per option, then sort: never draw inside a sort comparator, or the number of
       // draws depends on the JavaScript engine's sort and different browsers would build different maps.
-      const scored = options.map((n) => ({ n, score: distance(n, to) + rng.next() * 1.6 }));
+      const scored = options.map((n) => ({
+        n,
+        score: distance(n, to) * 2 + (prev && n !== ahead ? 0.9 : 0) + rng.next() * 1.4,
+      }));
       scored.sort((x, y) => x.score - y.score || x.n.localeCompare(y.n));
       cur = scored[0].n;
       path.push(cur);
@@ -286,33 +310,54 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
   };
   const passableOnEdge = (pick: () => HexKey) => { for (let i = 0; i < 20; i++) { const h = pick(); if (!TERRAIN[at(h)].impassable) return h; } return pick(); };
   const mid = (n: number) => Math.floor(n / 4) + rng.int(Math.max(1, Math.floor(n / 2)));
-  lay(wander(passableOnEdge(() => key(0, mid(rows))), passableOnEdge(() => key(cols - 1, mid(rows))), cols * 3));
-  lay(wander(passableOnEdge(() => key(mid(cols), 0)), passableOnEdge(() => key(mid(cols), rows - 1)), rows * 3));
+  // A road that can't find a fairly direct way to where it's going is left out, rather than coiling
+  // round (#57): it must get there in at most twice the straight distance, plus a little.
+  const roadTo = (from: HexKey, to: HexKey, steps: number, join = false) => {
+    const p = wander(from, to, steps, join);
+    const ok = p[p.length - 1] === to && p.length - 1 <= distance(from, to) * 2 + 3;
+    if (ok) lay(p);
+    return ok;
+  };
+  // The two main roads: west to east and north to south, each tried from a few places until one gets through.
+  for (let tries = 0; tries < 6 && !roadTo(passableOnEdge(() => key(0, mid(rows))), passableOnEdge(() => key(cols - 1, mid(rows))), cols * 3); tries++);
+  for (let tries = 0; tries < 6 && !roadTo(passableOnEdge(() => key(mid(cols), 0)), passableOnEdge(() => key(mid(cols), rows - 1)), rows * 3, true); tries++);
   // Branches: from somewhere on the network to a village, ruins, or a point on the map.
   const destinations = terrain.map((t, i) => [t, key(i % cols, Math.floor(i / cols))] as const)
     .filter(([t]) => t === 'village' || t === 'ruins').map(([, h]) => h);
   for (let i = 0; i < Math.max(2, Math.round(scale * 2)); i++) {
     const to = destinations.length && rng.int(3) ? rng.pick(destinations) : key(rng.int(cols), rng.int(rows));
     const from = [...onRoad].sort((x, y) => distance(x, to) - distance(y, to))[0];
-    if (from && from !== to && !TERRAIN[at(to)].impassable) lay(wander(from, to, Math.max(cols, rows)));
+    if (from && from !== to && !TERRAIN[at(to)].impassable) roadTo(from, to, Math.max(cols, rows) * 2);
   }
 
-  // Elevation (PLACEHOLDER shape): a few rises, each sloping down one level every two hexes, so
-  // neighbouring hexes mostly differ by at most 1. Hills sit one level above the ground around
-  // them, which makes the occasional two-level drop: a cliff for most units.
+  // Elevation: the lie of the land, with hills one level above the ground around them (which makes the
+  // occasional two-level drop: a cliff for most units). Lakes are at 0.
   const elevation = new Array<number>(cols * rows).fill(0);
-  const rises = Math.max(2, Math.round((cols * rows) / 60));
-  const peaks = Array.from({ length: rises }, () => ({ hex: key(rng.int(cols), rng.int(rows)), height: 2 + rng.int(2) }));
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const h = key(c, r);
       const i = r * cols + c;
-      const base = Math.max(0, ...peaks.map((p) => p.height - Math.floor(distance(h, p.hex) / 2)));
-      elevation[i] = terrain[i] === 'water' ? 0 : base + (terrain[i] === 'hills' ? 1 : 0);
+      elevation[i] = terrain[i] === 'water' ? 0 : ground(key(c, r)) + (terrain[i] === 'hills' ? 1 : 0);
+    }
+  }
+  // Rivers never flow uphill (#59). A stretch of river lies at the height of its lower bank (lakes aside);
+  // going downstream that never rises. Where a hill beside it would make it rise, the river cuts its
+  // bed: the lower bank comes down to the river's level. Repeat until nothing changes.
+  const idx = (h: HexKey) => { const [c, r] = h.split(',').map(Number); return r * cols + c; };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const course of courses) {
+      let level = Infinity;
+      for (const [a, b] of course) {
+        const banks = [a, b].filter((h) => terrain[idx(h)] !== 'water');
+        if (!banks.length) continue;
+        const low = banks.reduce((x, y) => (elevation[idx(y)] < elevation[idx(x)] ? y : x));
+        if (elevation[idx(low)] > level) { elevation[idx(low)] = level; changed = true; }
+        level = Math.min(level, elevation[idx(low)]);
+      }
     }
   }
   void inMap;
-  return { cols, rows, terrain, elevation, roads: [...roads].sort(), rivers };
+  return { map: { cols, rows, terrain, elevation, roads: [...roads].sort(), rivers }, courses };
 }
 
 // ---------------------------------------------------------------- rivers along hex edges
@@ -323,7 +368,8 @@ export function generateMap(era: Era, size: MapSize, seed: number, protectedHexe
  * one hex edge. Returns the edges as "a|b" keys of the two hexes they separate (edges on the map's
  * border, with a hex on one side only, are left out).
  */
-function riverNetwork(cols: number, rows: number, rng: ReturnType<typeof createRng>, branches: number): string[] {
+function riverNetwork(cols: number, rows: number, rng: ReturnType<typeof createRng>, branches: number, ground: (h: HexKey) => number):
+  { edges: string[]; courses: [HexKey, HexKey][][] } {
   // Corners sit on a whole-number grid: a hex at (col, row) has its centre at X = 2·col + (row odd),
   // Y = 3·row, and its corners at these offsets (pointy-top, clockwise from the top-right).
   // Integers keep the river exactly the same in every browser (no floating-point trigonometry).
@@ -365,47 +411,90 @@ function riverNetwork(cols: number, rows: number, rng: ReturnType<typeof createR
   const maxX = Math.max(...all.map((c) => c.x));
   const edges = new Set<string>();
   const visited = new Set<string>();
+  const courses: [HexKey, HexKey][][] = []; // each river's stretches, from source to mouth
+  const level = (hexes: HexKey[]) => Math.min(...hexes.map(ground)); // a stretch lies at its lower bank
 
-  /** Walk from a corner, scoring each step by `pull`, until `done` or stuck. Returns the corners. */
-  const walk = (start: string, pull: (from: Corner, to: Corner) => number, done: (c: Corner) => boolean, maxSteps: number) => {
+  // Headings every 15°, measured from due south (+y) towards east (+x), from -120° to +120°. A table
+  // rather than Math.sin/cos, so every browser computes exactly the same river.
+  const SIN = [0, 0.258819, 0.5, 0.707107, 0.866025, 0.965926, 1, 0.965926, 0.866025];
+  const COS = [1, 0.965926, 0.866025, 0.707107, 0.5, 0.258819, 0, -0.258819, -0.5];
+  const heading = (i: number) => ({ x: Math.sign(i) * SIN[Math.abs(i)], y: COS[Math.abs(i)] });
+
+  /**
+   * Follow a heading from a corner (#59). The river keeps to a straight course line, taking the edge
+   * that makes most progress along it while staying closest to it, so it zigzags only as hex edges
+   * must. Now and then it bends by 15° (within `lo`..`hi`) and starts a new course line from where it
+   * is. It never doubles back: where it can't go on, it stops, and a branch shorter than `minSteps`
+   * edges is left out. `flip` turns every heading round (north instead of south). Going `downhill`
+   * (the main river, from its source) it never takes a stretch higher than the last while it has a
+   * choice, and generateMap cuts its bed where it has none; going uphill (a tributary, traced from
+   * where it joins), it never takes a lower stretch and stops instead. Returns the corners visited.
+   */
+  const follow = (start: string, dir: number, lo: number, hi: number, flip: boolean, downhill: boolean,
+    done: (c: Corner) => boolean, maxSteps: number, minSteps = 0) => {
     const path = [start];
-    visited.add(start);
+    const laid: [HexKey, HexKey][] = [];
     let cur = start;
+    let origin = corners.get(start)!;
+    let height = downhill ? Infinity : -Infinity;
     for (let i = 0; i < maxSteps && !done(corners.get(cur)!); i++) {
+      if (rng.next() < 0.07) {
+        dir = Math.max(lo, Math.min(hi, dir + (rng.int(2) ? 1 : -1)));
+        origin = corners.get(cur)!;
+      }
+      const h0 = heading(dir);
+      const h = flip ? { x: -h0.x, y: -h0.y } : h0;
       const here = corners.get(cur)!;
-      const options = here.links.filter((l) => l.hexes.length === 2 && !visited.has(l.to));
-      if (!options.length) break;
-      const best = options.map((l) => ({ l, score: pull(here, corners.get(l.to)!) + rng.next() * 1.2 }))
-        .sort((a, b) => b.score - a.score || a.l.to.localeCompare(b.l.to))[0].l;
-      edges.add(edgeKey(best.hexes[0], best.hexes[1]));
-      cur = best.to;
-      visited.add(cur);
+      // Keep clear of rivers already drawn: never run along a corner they touch (except where this one starts).
+      const options = here.links.filter((l) => l.hexes.length === 2 && !visited.has(l.to) && !path.includes(l.to)
+        && !corners.get(l.to)!.links.some((m) => m.to !== cur && visited.has(m.to) && m.to !== start)).map((l) => {
+        const to = corners.get(l.to)!;
+        const ahead = (to.x - here.x) * h.x + (to.y - here.y) * h.y; // progress along the heading
+        const aside = Math.abs((to.x - origin.x) * h.y - (to.y - origin.y) * h.x); // off the course line
+        const lv = level(l.hexes);
+        return { l, ahead, lv, score: ahead - aside * 0.8 + rng.next() * 0.1 };
+      }).filter((o) => o.ahead > 0); // never doubles back: a river that can't go on stops here
+      const level_ok = options.filter((o) => (downhill ? o.lv <= height : o.lv >= height));
+      const pool = level_ok.length || !downhill ? level_ok : options;
+      if (!pool.length) break;
+      const best = pool.sort((a, b) => b.score - a.score || a.l.to.localeCompare(b.l.to))[0];
+      laid.push([best.l.hexes[0], best.l.hexes[1]]);
+      height = downhill ? Math.min(height, best.lv) : Math.max(height, best.lv);
+      cur = best.l.to;
       path.push(cur);
     }
+    if (laid.length < minSteps) return [start]; // too short to be a river: leave it out
+    for (const [a, b] of laid) edges.add(edgeKey(a, b));
+    for (const c of path) visited.add(c);
+    courses.push(downhill ? laid : [...laid].reverse());
     return path;
   };
 
-  // The main river: from a corner on the north edge, in the middle half, heading south.
-  // Start between two hexes of the top row (where an edge leads into the map), in the middle half.
+  // The main river crosses the map north to south, within 30° of straight across. It rises at the
+  // higher end (the north on level ground) and starts from a corner in the middle half of that edge.
   const minY = Math.min(...all.map((x) => x.y));
-  const tops = all.filter((c) => c.y < minY + 0.6 && c.links.some((l) => l.hexes.length === 2)
+  const middle = Array.from({ length: Math.max(1, Math.floor(cols / 2)) }, (_, i) => Math.floor(cols / 4) + i);
+  const northHigh = middle.reduce((t, c) => t + ground(key(c, 0)), 0) >= middle.reduce((t, c) => t + ground(key(c, rows - 1)), 0);
+  const ends = all.filter((c) => (northHigh ? c.y < minY + 0.6 : c.y > maxY - 0.6) && c.links.some((l) => l.hexes.length === 2)
     && c.x > minX + (maxX - minX) / 4 && c.x < maxX - (maxX - minX) / 4);
-  const startTop = rng.pick(tops.length ? tops : all);
-  const startKey = [...corners.entries()].find(([, c]) => c === startTop)![0];
-  // A gentle sideways drift that changes now and then makes the river meander.
-  let drift = rng.next() - 0.5;
-  const main = walk(startKey, (from, to) => {
-    if (rng.next() < 0.15) drift = rng.next() - 0.5;
-    return (to.y - from.y) * 1.2 + (to.x - from.x) * drift;
-  }, (c) => c.y >= maxY - 1.6, rows * 6);
+  const source = rng.pick(ends.length ? ends : all);
+  const sourceKey = [...corners.entries()].find(([, c]) => c === source)![0];
+  const flip = !northHigh;
+  const main = follow(sourceKey, rng.int(3) - 1, -2, 2, flip, true, (c) => (flip ? c.y <= minY + 1.6 : c.y >= maxY - 1.6), rows * 6);
 
-  // Tributaries: from a point along the main river, wandering east or west.
-  for (let i = 0; i < branches && main.length > 6; i++) {
-    const from = main[Math.floor(main.length / 4) + rng.int(Math.max(1, Math.floor(main.length / 2)))];
-    const east = rng.int(2) === 1;
-    walk(from, (a, b) => (b.x - a.x) * (east ? 1 : -1) + (b.y - a.y) * (rng.next() - 0.5), (c) => c.x <= minX + 1 || c.x >= maxX - 1, cols * 2);
+  // Now and then a tributary joins the main river from the east or west. It's traced upstream from
+  // where it joins, heading back against the main river's flow at 0°–30° above square across.
+  for (let i = 0; i < branches && main.length > 8; i++) {
+    const at = Math.floor(main.length / 5) + rng.int(Math.max(1, Math.floor((main.length * 3) / 5)));
+    const from = main[at];
+    // Branch away from the way the river leans there, so the two part at a wide angle rather than
+    // running side by side.
+    const lean = corners.get(main[Math.min(main.length - 1, at + 4)])!.x - corners.get(main[Math.max(0, at - 4)])!.x;
+    const side = (lean > 0.5 ? -1 : lean < -0.5 ? 1 : rng.int(2) ? 1 : -1) * (flip ? -1 : 1); // in heading terms
+    const dir = side * (6 + rng.int(3)); // 90°–120° from the main river's direction
+    follow(from, dir, side > 0 ? 6 : -8, side > 0 ? 8 : -6, flip, false, (c) => c.x <= minX + 1 || c.x >= maxX - 1, cols * 3, 6);
   }
-  return [...edges].sort();
+  return { edges: [...edges].sort(), courses };
 }
 
 // ---------------------------------------------------------------- the game at turn 0

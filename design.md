@@ -83,12 +83,20 @@ Everything is after `#`, which browsers never send to the web server, so the hos
   | Lake | small clusters |
 
 - **Roads, rivers and bridges are lines**, not terrain (their effects on movement and combat are in rules.md):
-  - **Roads** join hex centres: a meandering west–east and north–south road, with branches to villages, ruins
-    and other points. A road never turns sharply (#57): it never leaves a hex through a face next to the one
-    it came in by, and a hex where exactly two segments meet is never a 60° bend. Three or more segments
-    make a junction, at any angle. A road that runs into a dead end backs out and tries another way.
-  - **Rivers** run along hex edges: a meandering river from the north edge to the south edge, with branching
-    tributaries.
+  - **Roads** join hex centres: a west–east and a north–south road, with branches to villages, ruins and
+    other points (#57). A road never moves away from where it's going, so it can't loop back on itself, and
+    it keeps straight on unless a turn gets it there sooner, so turns are few. It never turns sharply: it
+    never leaves a hex through a face next to the one it came in by, and a hex where exactly two segments
+    meet is never a 60° bend (three or more make a junction, at any angle). A branch doesn't run into
+    another road on its way. A road that can't reach its destination fairly directly is left out.
+  - **Rivers** run along hex edges (#59). The lie of the land is worked out first, then one river crosses the
+    map from north to south, rising at whichever end is higher. It holds a course within 30° of straight
+    across, zigzagging only as hex edges force it to, and now and then bends by 15°; it never doubles back.
+    A stretch of river lies at the height of its lower bank, and going downstream that never rises: the
+    river takes a level or lower stretch whenever it can, and where a hill would make it rise it cuts its
+    bed (the lower bank comes down to the river's level). Sometimes a tributary joins it from the east or
+    west, traced upstream from the junction and only ever climbing or level: rarely on a small map, at
+    most once on any map.
   - **Bridges** are where a road crosses a river.
   - The map stores both as pairs of adjacent hexes (`roads`, `rivers`); a pair in both lists is a bridge.
 
